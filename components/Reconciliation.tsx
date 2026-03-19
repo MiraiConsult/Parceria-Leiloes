@@ -50,10 +50,10 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
 
   const { statement: filteredAndSortedStatement, totalInitialBalance, projectedBalance } = useMemo(() => {
-    if (selectedBankIds.size === 0) return { statement: [], totalInitialBalance: 0, projectedBalance: 0 };
+    const allBanksSelected = selectedBankIds.size === 0 || selectedBankIds.size === bancos.length;
 
     const bankInitialBalance = bancos
-        .filter(b => selectedBankIds.has(b.id))
+        .filter(b => allBanksSelected || selectedBankIds.has(b.id))
         .reduce((sum, b) => sum + (Number(b.saldo_inicial) || 0), 0);
 
     const start = dateFilter.start ? parseDate(dateFilter.start) : null;
@@ -62,7 +62,7 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
 
     // Get all transactions for selected banks (regardless of date filter)
     const allBankTx = transactions.filter(t => {
-      if (!selectedBankIds.has(t.banco_id)) return false;
+      if (!allBanksSelected && !selectedBankIds.has(t.banco_id)) return false;
       const txDate = parseDate(t.data_pagamento);
       if (isNaN(txDate.getTime())) return false;
       return true;
