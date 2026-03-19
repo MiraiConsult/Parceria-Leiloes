@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Lancamento, Banco, User, Unidade, Leilao } from '../types';
+import { Lancamento, Banco, Categoria, User, Unidade, Leilao } from '../types';
 import { formatCurrency, formatDate, parseDate } from '../utils/format';
 import { Landmark, TrendingUp, CheckCircle2, Loader, Pencil, Trash2, CheckSquare, XSquare, Plus, GripVertical, Search } from 'lucide-react';
 import { supabase } from '../supabaseClient';
@@ -60,9 +60,9 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
     const end = dateFilter.end ? parseDate(dateFilter.end) : null;
     if (end) end.setHours(23, 59, 59, 999);
 
-    // Get all approved transactions for selected banks (regardless of date filter)
+    // Get all transactions for selected banks (regardless of date filter)
     const allBankTx = transactions.filter(t => {
-      if (!selectedBankIds.has(t.banco_id) || t.status !== 'aprovado') return false;
+      if (!selectedBankIds.has(t.banco_id)) return false;
       const txDate = parseDate(t.data_pagamento);
       if (isNaN(txDate.getTime())) return false;
       return true;
@@ -77,6 +77,20 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
       const val = t.tipo === 'receita' ? (Number(t.valor) || 0) : -(Number(t.valor) || 0);
       runningBal += val;
       balanceByTxId.set(t.id, runningBal);
+    }
+
+    // Calculate the initial balance at the start of the date range
+    // This includes the bank's initial balance + all transactions BEFORE the filtered period
+    let displayInitialBalance = bankInitialBalance;
+    if (start) {
+      for (const t of allBankTx) {
+        const txDate = parseDate(t.data_pagamento);
+        if (txDate < start) {
+          displayInitialBalance = balanceByTxId.get(t.id) || displayInitialBalance;
+        } else {
+          break; // allBankTx is sorted by date, no more pre-range transactions
+        }
+      }
     }
 
     // Now filter for display (date, unidade, search)
@@ -104,11 +118,11 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
       }
     }
 
-    // Initial balance shown = bank initial balance
-    // Projected balance = last transaction's running balance (or initial if no transactions)
-    const lastVisible = statementWithBalance.length > 0 ? statementWithBalance[statementWithBalance.length - 1].runningBalance : bankInitialBalance;
+    // Initial balance = accumulated balance at start of filtered period (or bank initial if no filter)
+    // Projected balance = last transaction's running balance (or initial if no transactions visible)
+    const lastVisible = statementWithBalance.length > 0 ? statementWithBalance[statementWithBalance.length - 1].runningBalance : displayInitialBalance;
 
-    return { statement: statementWithBalance, totalInitialBalance: bankInitialBalance, projectedBalance: lastVisible };
+    return { statement: statementWithBalance, totalInitialBalance: displayInitialBalance, projectedBalance: lastVisible };
   }, [transactions, selectedBankIds, bancos, dateFilter, selectedUnidades, searchTerm, categoryMap]);
 
   useEffect(() => {
