@@ -108,7 +108,7 @@ const Transactions: React.FC<TransactionsProps> = ({
     setLoading(id);
     const { data, error } = await supabase
       .from('lancamentos')
-      .update({ status: 'aprovado', approved_by: user.id })
+      .update({ status: 'aprovado', approved_by: user.id, conciliado: true })
       .eq('id', id)
       .select()
       .single();
@@ -183,8 +183,10 @@ const Transactions: React.FC<TransactionsProps> = ({
     const filtered = baseTransactions.filter(t => {
       const desc = t.descricao || '';
       const forn = t.fornecedor || '';
-      const matchesText = desc.toLowerCase().includes(filters.filter.toLowerCase()) || 
-                          forn.toLowerCase().includes(filters.filter.toLowerCase());
+      const rubrica = t.categoria_id ? (categoryMap.get(t.categoria_id) || '') : '';
+      const matchesText = desc.toLowerCase().includes(filters.filter.toLowerCase()) ||
+                          forn.toLowerCase().includes(filters.filter.toLowerCase()) ||
+                          rubrica.toLowerCase().includes(filters.filter.toLowerCase());
       const matchesStatus = filters.statusFilter === 'all' || t.status === filters.statusFilter;
       
       const txDate = parseDate(t.data_pagamento);
@@ -240,7 +242,7 @@ const Transactions: React.FC<TransactionsProps> = ({
       return sortConfig.direction === 'asc' ? comparison : -comparison;
     });
 
-  }, [transactions, filters, sortConfig, leilaoMap]);
+  }, [transactions, filters, sortConfig, leilaoMap, categoryMap]);
   
   const { transactionCount, netTotalValue } = useMemo(() => {
     const count = filteredAndSorted.length;
@@ -352,7 +354,7 @@ const Transactions: React.FC<TransactionsProps> = ({
                 <div className="flex flex-col md:flex-row gap-4 items-center">
                     <div className="relative flex-1 w-full">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                    <input type="text" placeholder="Buscar por descrição ou fornecedor..." className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none" value={localFilters.filter} onChange={(e) => updateLocalFilter('filter', e.target.value)} />
+                    <input type="text" placeholder="Buscar por descrição, fornecedor ou rubrica..." className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none" value={localFilters.filter} onChange={(e) => updateLocalFilter('filter', e.target.value)} />
                     </div>
                     <div className="flex items-center gap-2 w-full md:w-auto">
                     <Filter className="text-slate-400" size={18} />
