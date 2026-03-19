@@ -230,15 +230,7 @@ function App() {
     return Array.from(years).sort((a, b) => b - a);
   }, [transactions, leiloes]);
 
-  // Effect to set default bank for reconciliation once data is loaded
-  useEffect(() => {
-    if (bancos.length > 0 && viewStates.reconciliation.selectedBankIds.size === 0) {
-      setViewStates(prev => ({
-        ...prev,
-        reconciliation: { ...prev.reconciliation, selectedBankIds: new Set([bancos[0].id]) }
-      }));
-    }
-  }, [bancos]);
+  // No auto-selection: empty selectedBankIds means "all banks" (Todos os Bancos)
 
 
   useEffect(() => {
