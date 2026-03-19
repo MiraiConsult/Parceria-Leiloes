@@ -51,8 +51,8 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
 
   const { statement: filteredAndSortedStatement, totalInitialBalance, projectedBalance } = useMemo(() => {
     if (selectedBankIds.size === 0) return { statement: [], totalInitialBalance: 0, projectedBalance: 0 };
-    
-    let initialBalance = bancos
+
+    const bankInitialBalance = bancos
         .filter(b => selectedBankIds.has(b.id))
         .reduce((sum, b) => sum + (Number(b.saldo_inicial) || 0), 0);
 
@@ -60,80 +60,55 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
     const end = dateFilter.end ? parseDate(dateFilter.end) : null;
     if (end) end.setHours(23, 59, 59, 999);
 
-    const relevantTx = transactions.filter(t => {
-      if (!selectedBankIds.has(t.banco_id) || t.status !== 'aprovado') {
-          return false;
-      }
+    // Get all approved transactions for selected banks (regardless of date filter)
+    const allBankTx = transactions.filter(t => {
+      if (!selectedBankIds.has(t.banco_id) || t.status !== 'aprovado') return false;
       const txDate = parseDate(t.data_pagamento);
-      if(isNaN(txDate.getTime())) return false;
-      
-      const matchesUnidades = selectedUnidades.size === 0 || (t.unidade_id ? selectedUnidades.has(t.unidade_id) : false);
-      if (!matchesUnidades) return false;
-
+      if (isNaN(txDate.getTime())) return false;
       return true;
     });
 
-    relevantTx.sort((a, b) => parseDate(a.data_pagamento).getTime() - parseDate(b.data_pagamento).getTime());
+    allBankTx.sort((a, b) => parseDate(a.data_pagamento).getTime() - parseDate(b.data_pagamento).getTime());
 
-    const filteredTx: Lancamento[] = [];
-    
-    for (const t of relevantTx) {
-      const txDate = parseDate(t.data_pagamento);
+    // Calculate running balance from ALL transactions (balance is never affected by date/unidade/search filters)
+    const balanceByTxId = new Map<string, number>();
+    let runningBal = bankInitialBalance;
+    for (const t of allBankTx) {
       const val = t.tipo === 'receita' ? (Number(t.valor) || 0) : -(Number(t.valor) || 0);
-
-      if (start && txDate < start) {
-        initialBalance += val;
-      } else if (end && txDate > end) {
-        // Ignore
-      } else {
-        const desc = t.descricao || '';
-        const forn = t.fornecedor || '';
-        const rubrica = t.categoria_id ? (categoryMap.get(t.categoria_id) || '') : '';
-        const matchesSearch = searchTerm === '' || 
-          desc.toLowerCase().includes(searchTerm.toLowerCase()) || 
-          forn.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          rubrica.toLowerCase().includes(searchTerm.toLowerCase());
-
-        if (matchesSearch) {
-          filteredTx.push(t);
-        } else {
-          // Even if it doesn't match search, it affects the running balance if it's in the date range?
-          // Wait, if it's filtered out by search, should it affect the running balance?
-          // Usually, running balance is the actual bank balance. So YES, it should affect the balance.
-          // But if we hide it, the running balance will jump.
-          // Let's include it in the balance calculation.
-        }
-      }
+      runningBal += val;
+      balanceByTxId.set(t.id, runningBal);
     }
 
-    // Now calculate running balance for the displayed items
-    let currentBalance = initialBalance;
+    // Now filter for display (date, unidade, search)
     const statementWithBalance: StatementRow[] = [];
-    
-    for (const t of relevantTx) {
+
+    for (const t of allBankTx) {
       const txDate = parseDate(t.data_pagamento);
+
       if (start && txDate < start) continue;
       if (end && txDate > end) continue;
 
-      const val = t.tipo === 'receita' ? (Number(t.valor) || 0) : -(Number(t.valor) || 0);
-      currentBalance += val;
+      const matchesUnidades = selectedUnidades.size === 0 || (t.unidade_id ? selectedUnidades.has(t.unidade_id) : false);
+      if (!matchesUnidades) continue;
 
       const desc = t.descricao || '';
       const forn = t.fornecedor || '';
       const rubrica = t.categoria_id ? (categoryMap.get(t.categoria_id) || '') : '';
-      const matchesSearch = searchTerm === '' || 
-        desc.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      const matchesSearch = searchTerm === '' ||
+        desc.toLowerCase().includes(searchTerm.toLowerCase()) ||
         forn.toLowerCase().includes(searchTerm.toLowerCase()) ||
         rubrica.toLowerCase().includes(searchTerm.toLowerCase());
 
       if (matchesSearch) {
-        statementWithBalance.push({ ...t, runningBalance: currentBalance });
+        statementWithBalance.push({ ...t, runningBalance: balanceByTxId.get(t.id) || 0 });
       }
     }
 
-    const finalProjectedBalance = currentBalance;
+    // Initial balance shown = bank initial balance
+    // Projected balance = last transaction's running balance (or initial if no transactions)
+    const lastVisible = statementWithBalance.length > 0 ? statementWithBalance[statementWithBalance.length - 1].runningBalance : bankInitialBalance;
 
-    return { statement: statementWithBalance, totalInitialBalance: initialBalance, projectedBalance: finalProjectedBalance };
+    return { statement: statementWithBalance, totalInitialBalance: bankInitialBalance, projectedBalance: lastVisible };
   }, [transactions, selectedBankIds, bancos, dateFilter, selectedUnidades, searchTerm, categoryMap]);
 
   useEffect(() => {
@@ -301,6 +276,7 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
                   <th className="w-10"></th>
                   <th className="px-6 py-4 w-32">Data</th>
                   <th className="px-6 py-4">Descrição</th>
+                  <th className="px-6 py-4">Rubrica</th>
                   <th className="px-6 py-4">Banco</th>
                   <th className="px-6 py-4">Leilão</th>
                   <th className="px-6 py-4 w-40 text-center">Conciliação</th>
@@ -329,6 +305,7 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
                     </td>
                     <td className="px-6 py-4 text-slate-600">{formatDate(t.data_pagamento)}</td>
                     <td className="px-6 py-4 text-slate-900">{t.descricao}<span className="block text-xs text-slate-400 font-medium">{t.fornecedor}</span></td>
+                    <td className="px-6 py-4 text-slate-500 truncate max-w-xs">{t.categoria_id ? categoryMap.get(t.categoria_id) : ''}</td>
                     <td className="px-6 py-4 text-slate-500">{bancoMap.get(t.banco_id)}</td>
                     <td className="px-6 py-4 text-slate-500 truncate max-w-xs">{t.leilao_id ? leilaoMap.get(t.leilao_id) : ''}</td>
                     <td className="px-6 py-4 text-center">
@@ -348,7 +325,7 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
                     </td>
                   </tr>
                 ))}
-                {displayedStatement.length === 0 && (<tr><td colSpan={10} className="px-6 py-8 text-center text-slate-400">Nenhuma movimentação para os filtros selecionados.</td></tr>)}
+                {displayedStatement.length === 0 && (<tr><td colSpan={11} className="px-6 py-8 text-center text-slate-400">Nenhuma movimentação para os filtros selecionados.</td></tr>)}
               </tbody>
             </table>
           </div>
