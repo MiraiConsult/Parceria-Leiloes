@@ -18,13 +18,11 @@ import DatabaseExport from './components/DatabaseExport';
 import Tutorial from './components/Tutorial';
 import { TransactionModal } from './components/TransactionModal';
 import TransactionDetailsModal from './components/TransactionDetailsModal';
-import Chat from './components/Chat';
 import { supabase } from './supabaseClient';
 import { Loader, ShieldOff } from 'lucide-react';
 import { Period } from './components/PeriodSelector';
-import { GoogleGenAI, Chat as GeminiChat } from "@google/genai";
 
-import { Banco, Categoria, Lancamento, Leilao, LeilaoCategoria, Unidade, User, CentroCusto, Previsao, UnvalidatedTransaction, TransactionFilters, ChatMessage } from './types';
+import { Banco, Categoria, Lancamento, Leilao, LeilaoCategoria, Unidade, User, CentroCusto, Previsao, UnvalidatedTransaction, TransactionFilters } from './types';
 import { parseDate } from './utils/format';
 import { 
   BANCOS, 
@@ -55,11 +53,6 @@ interface ViewStates {
     selectedBankIds: Set<string>; 
     selectedUnidades: Set<string>;
     dateFilter: { start: string; end: string };
-  };
-  chat: {
-    messages: ChatMessage[];
-    isLoading: boolean;
-    error: string | null;
   };
 }
 
@@ -107,8 +100,6 @@ function App() {
   const [catLeilao, setCatLeilao] = useState<LeilaoCategoria[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [centros, setCentros] = useState<CentroCusto[]>([]);
-  const [chatSession, setChatSession] = useState<GeminiChat | null>(null);
-  
   // Transaction Modal State
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Partial<Lancamento> | null>(null);
@@ -139,11 +130,6 @@ function App() {
       selectedBankIds: new Set<string>(), 
       selectedUnidades: new Set<string>(),
       dateFilter: { start: '', end: '' },
-    },
-    chat: {
-      messages: [{ role: 'model', content: 'Olá! Sou seu assistente financeiro. Faça uma pergunta sobre os dados da Parceria Leilões para começar.' }],
-      isLoading: false,
-      error: null,
     },
   });
 
@@ -220,54 +206,6 @@ function App() {
   const handleCloseTransactionModal = () => {
     setIsTransactionModalOpen(false);
     setEditingTransaction(null);
-  };
-
-  const handleSendMessage = async (input: string) => {
-    if (!input.trim() || viewStates.chat.isLoading || !chatSession) return;
-
-    const userMessage: ChatMessage = { role: 'user', content: input };
-    
-    setViewStates(p => ({
-      ...p,
-      chat: {
-        ...p.chat,
-        messages: [...p.chat.messages, userMessage],
-        isLoading: true,
-        error: null,
-      }
-    }));
-
-    try {
-      const simplifiedContext = {
-          transactions_summary: `Total de ${visibleTransactions.length} transações.`,
-          auctions_summary: `Total de ${leiloes.length} leilões.`,
-          data_overview: {
-              transactions: visibleTransactions.slice(0, 100).map(t => ({ desc: t.descricao, val: t.valor, tipo: t.tipo, data: t.data_pagamento, leilao_id: t.leilao_id })),
-              leiloes: leiloes.map(l => ({ nome: l.nome, data: l.data, id: l.id })),
-              categories: categories.map(c => ({ rubrica: c.rubrica, centro: c.centro, classificacao: c.classificacao })),
-              bancos: bancos.map(b => b.nome),
-              unidades: unidades.map(u => u.nome),
-          }
-      };
-
-      const contextString = JSON.stringify(simplifiedContext);
-      const prompt = `Com base nos dados a seguir, responda à pergunta do usuário.\n\n### Contexto de Dados:\n${contextString}\n\n### Pergunta:\n${input}`;
-      
-      const response = await chatSession.sendMessage({ message: prompt });
-      const modelMessage: ChatMessage = { role: 'model', content: response.text ?? "Não obtive uma resposta." };
-
-      setViewStates(p => ({
-        ...p,
-        chat: { ...p.chat, messages: [...p.chat.messages, modelMessage], isLoading: false }
-      }));
-    } catch (error) {
-      console.error("Erro ao enviar mensagem para a API Gemini:", error);
-      const errorMessage: ChatMessage = { role: 'model', content: 'Desculpe, ocorreu um erro ao processar sua pergunta. Tente novamente.' };
-      setViewStates(p => ({
-        ...p,
-        chat: { ...p.chat, messages: [...p.chat.messages, errorMessage], isLoading: false }
-      }));
-    }
   };
 
   // Centralized year calculation
@@ -440,28 +378,6 @@ function App() {
     }
   };
 
-  useEffect(() => {
-    if (currentUser && !chatSession) { // Initialize only once when user is loaded
-      try {
-        const apiKey = process.env.API_KEY;
-        if (!apiKey) {
-            throw new Error("API_KEY não encontrada.");
-        }
-        const ai = new GoogleGenAI({ apiKey });
-        const systemInstruction = `Você é um assistente financeiro especialista nos dados da empresa Parceria Leilões. Sua única função é responder perguntas com base nos dados que serão fornecidos em formato JSON. Seja claro, objetivo e use formatação Markdown simples (negrito com **, listas com -) para melhorar a legibilidade. Formate todos os valores monetários em Reais (R$), dividindo os valores por 100 e usando o formato R$ 1.234,56. Não invente informações nem responda perguntas que não estejam relacionadas aos dados fornecidos. A data atual é ${new Date().toLocaleDateString('pt-BR')}. Os dados disponíveis incluem: transações (lancamentos), leilões (leiloes), categorias (plano de contas), bancos e unidades.`;
-        
-        const session = ai.chats.create({
-            model: 'gemini-3-flash-preview',
-            config: { systemInstruction: systemInstruction },
-        });
-        setChatSession(session);
-      } catch (e: unknown) {
-        const errorMessage = e instanceof Error ? e.message : String(e);
-        setViewStates(p => ({ ...p, chat: { ...p.chat, error: `Não foi possível iniciar o assistente. ${errorMessage}` } }));
-      }
-    }
-  }, [currentUser]);
-
   // This effect now correctly handles the logic for fetching data only when needed.
   useEffect(() => {
     // Case 1: We have a session but no user data yet. This is the initial login flow.
@@ -529,7 +445,6 @@ function App() {
         )}
         <Routes>
             <Route path="/dashboard" element={<ProtectedRoute viewId="dashboard" currentUser={currentUser}><Dashboard transactions={visibleTransactions} transactionsLoading={transactionsLoading} bancos={bancos} categories={categories} leiloes={leiloes} catLeilao={catLeilao} availableYears={availableYears} unidades={unidades} dashboardState={viewStates.dashboard} setDashboardState={(updates: Partial<ViewStates['dashboard']>) => setViewStates(p => ({ ...p, dashboard: { ...p.dashboard, ...updates } }))} /></ProtectedRoute>} />
-            <Route path="/chat" element={<ProtectedRoute viewId="chat" currentUser={currentUser}><Chat messages={viewStates.chat.messages} isLoading={viewStates.chat.isLoading} error={viewStates.chat.error} onSendMessage={handleSendMessage} /></ProtectedRoute>} />
             <Route path="/tutorial" element={<ProtectedRoute viewId="tutorial" currentUser={currentUser}><Tutorial /></ProtectedRoute>} />
             <Route path="/registries" element={<ProtectedRoute viewId="registries" currentUser={currentUser}><Registries bancos={bancos} setBancos={setBancos} leiloes={leiloes} setLeiloes={setLeiloes} catLeilao={catLeilao} setCatLeilao={setCatLeilao} unidades={unidades} setUnidades={setUnidades} planoContas={categories} setPlanoContas={setCategories} users={users} setUsers={setUsers} currentUser={currentUser} centros={centros} setCentros={setCentros} /></ProtectedRoute>} />
             <Route path="/database" element={<ProtectedRoute viewId="database" currentUser={currentUser}><DatabaseExport transactions={visibleTransactions} categories={categories} leiloes={leiloes} bancos={bancos} unidades={unidades} users={users} catLeilao={catLeilao} centros={centros} /></ProtectedRoute>} />

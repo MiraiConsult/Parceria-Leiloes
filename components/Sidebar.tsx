@@ -13,7 +13,6 @@ import {
   Database,
   CalendarClock,
   DatabaseZap,
-  MessageSquare,
   Landmark,
   ChevronDown,
   BookOpen,
@@ -38,8 +37,7 @@ type MenuItem = {
 
 export const ALL_MENU_ITEMS: MenuItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} />, path: '/dashboard' },
-  { id: 'chat', label: 'Chat IA', icon: <MessageSquare size={20} />, path: '/chat' },
-  { id: 'tutorial', label: 'Tutorial', icon: <BookOpen size={20} />, path: '/tutorial' },
+{ id: 'tutorial', label: 'Tutorial', icon: <BookOpen size={20} />, path: '/tutorial' },
   { id: 'registries', label: 'Cadastros', icon: <DatabaseZap size={20} />, path: '/registries' },
   { id: 'database', label: 'Banco de Dados', icon: <Database size={20} />, path: '/database' },
   { id: 'transactions', label: 'Lançamentos', icon: <DollarSign size={20} />, path: '/transactions', badge: true },
