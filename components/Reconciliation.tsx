@@ -60,9 +60,9 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
     const end = dateFilter.end ? parseDate(dateFilter.end) : null;
     if (end) end.setHours(23, 59, 59, 999);
 
-    // Get all approved transactions for selected banks (regardless of date filter)
+    // Get all transactions for selected banks (regardless of date filter)
     const allBankTx = transactions.filter(t => {
-      if (!selectedBankIds.has(t.banco_id) || t.status !== 'aprovado') return false;
+      if (!selectedBankIds.has(t.banco_id)) return false;
       const txDate = parseDate(t.data_pagamento);
       if (isNaN(txDate.getTime())) return false;
       return true;
