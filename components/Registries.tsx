@@ -111,7 +111,7 @@ const Registries: React.FC<RegistriesProps> = (props) => {
   const getInitialItem = (tab: RegistryType) => {
     const today = new Date().toISOString().split('T')[0];
     switch (tab) {
-      case 'bancos': return { nome: '', codigo: '', saldo_inicial: 0 };
+      case 'bancos': return { nome: '', codigo: '', saldo_inicial: 0, saldo_inicial_data: '' };
       case 'unidades': return { nome: '' };
       case 'leiloes': return { nome: '', data: today, categoria_id: '' };
       case 'leilao_categorias': return { nome: '' };
@@ -193,7 +193,10 @@ const Registries: React.FC<RegistriesProps> = (props) => {
     }
 
     const dataToSave = { ...editingItem };
-    if (activeTab === 'bancos') dataToSave.saldo_inicial = Math.round(((dataToSave.saldo_inicial as number) || 0) * 100);
+    if (activeTab === 'bancos') {
+      dataToSave.saldo_inicial = Math.round(((dataToSave.saldo_inicial as number) || 0) * 100);
+      if (!dataToSave.saldo_inicial_data) dataToSave.saldo_inicial_data = null;
+    }
     if (activeTab === 'users' && dataToSave.unidade_id === '') dataToSave.unidade_id = null;
     if (activeTab === 'users' && dataToSave.role === 'admin') dataToSave.permissions = null;
     if (activeTab === 'categorias' && !dataToSave.comp) {
@@ -298,7 +301,11 @@ const Registries: React.FC<RegistriesProps> = (props) => {
         return (<>
           <FormField label="Nome do Banco"><input type="text" value={editingItem.nome} onChange={e => handleModalChange('nome', e.target.value)} className="w-full border border-slate-300 rounded-lg p-2" /></FormField>
           <FormField label="Código"><input type="text" value={editingItem.codigo} onChange={e => handleModalChange('codigo', e.target.value)} className="w-full border border-slate-300 rounded-lg p-2" /></FormField>
-          <FormField label="Saldo Inicial (R$)"><input type="number" step="0.01" value={editingItem.saldo_inicial ?? ''} onChange={e => handleModalChange('saldo_inicial', e.target.value === '' ? undefined : parseFloat(e.target.value))} className="w-full border border-slate-300 rounded-lg p-2" /></FormField>
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Saldo Inicial (R$)"><input type="number" step="0.01" value={editingItem.saldo_inicial ?? ''} onChange={e => handleModalChange('saldo_inicial', e.target.value === '' ? undefined : parseFloat(e.target.value))} className="w-full border border-slate-300 rounded-lg p-2" /></FormField>
+            <FormField label="Data do Saldo Inicial"><input type="date" value={editingItem.saldo_inicial_data || ''} onChange={e => handleModalChange('saldo_inicial_data', e.target.value || null)} className="w-full border border-slate-300 rounded-lg p-2" /></FormField>
+          </div>
+          <p className="text-xs text-slate-500 -mt-2">O sistema só considerará lançamentos a partir desta data para o cálculo do saldo.</p>
         </>);
       case 'unidades':
         return <FormField label="Nome da Unidade"><input type="text" value={editingItem.nome} onChange={e => handleModalChange('nome', e.target.value)} className="w-full border border-slate-300 rounded-lg p-2" /></FormField>;
@@ -353,7 +360,7 @@ const Registries: React.FC<RegistriesProps> = (props) => {
 
     let columns: { key: string, label: string, render?: (item: Record<string, unknown>) => React.ReactNode }[] = [];
     switch(activeTab) {
-        case 'bancos': columns = [{key: 'nome', label: 'Nome'}, {key: 'codigo', label: 'Código'}, {key: 'saldo_inicial', label: 'Saldo Inicial', render: item => formatCurrency(item.saldo_inicial as number)}]; break;
+        case 'bancos': columns = [{key: 'nome', label: 'Nome'}, {key: 'codigo', label: 'Código'}, {key: 'saldo_inicial', label: 'Saldo Inicial', render: item => formatCurrency(item.saldo_inicial as number)}, {key: 'saldo_inicial_data', label: 'Data do Saldo', render: item => item.saldo_inicial_data ? formatDate(item.saldo_inicial_data as string) : '-'}]; break;
         case 'unidades': columns = [{key: 'nome', label: 'Nome'}]; break;
         case 'centros_custo': columns = [{key: 'nome', label: 'Nome'}]; break;
         case 'leiloes': columns = [{key: 'nome', label: 'Nome'}, {key: 'data', label: 'Data', render: item => formatDate(item.data as string)}, {key: 'categoria_id', label: 'Categoria', render: item => props.catLeilao.find(c => c.id === item.categoria_id)?.nome || 'N/A'}]; break;

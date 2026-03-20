@@ -16,6 +16,7 @@ export type Database = {
           id: string
           nome: string
           saldo_inicial: number
+          saldo_inicial_data: string | null
         }
         Insert: {
           codigo: string
@@ -23,6 +24,7 @@ export type Database = {
           id?: string
           nome: string
           saldo_inicial: number
+          saldo_inicial_data?: string | null
         }
         Update: {
           codigo?: string
@@ -30,6 +32,7 @@ export type Database = {
           id?: string
           nome?: string
           saldo_inicial?: number
+          saldo_inicial_data?: string | null
         }
         Relationships: []
       }
