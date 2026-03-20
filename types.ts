@@ -33,6 +33,7 @@ export interface Banco {
   nome: string;
   codigo: string;
   saldo_inicial: number; // in cents
+  saldo_inicial_data?: string; // ISO date string (YYYY-MM-DD) - date of the initial balance
 }
 
 // New Interface for "Centro" (Column B of PDF)

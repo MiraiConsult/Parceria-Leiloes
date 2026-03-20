@@ -52,25 +52,43 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
   const { statement: filteredAndSortedStatement, totalInitialBalance, projectedBalance } = useMemo(() => {
     const allBanksSelected = selectedBankIds.size === 0 || selectedBankIds.size === bancos.length;
 
-    const bankInitialBalance = bancos
-        .filter(b => allBanksSelected || selectedBankIds.has(b.id))
+    const selectedBancos = bancos.filter(b => allBanksSelected || selectedBankIds.has(b.id));
+
+    const bankInitialBalance = selectedBancos
         .reduce((sum, b) => sum + (Number(b.saldo_inicial) || 0), 0);
+
+    // Build a map of banco_id -> earliest allowed date (saldo_inicial_data)
+    // Transactions BEFORE this date are ignored (they're already included in saldo_inicial)
+    const bancoStartDateMap = new Map<string, Date | null>();
+    for (const b of selectedBancos) {
+      if (b.saldo_inicial_data) {
+        const d = parseDate(b.saldo_inicial_data);
+        bancoStartDateMap.set(b.id, isNaN(d.getTime()) ? null : d);
+      } else {
+        bancoStartDateMap.set(b.id, null);
+      }
+    }
 
     const start = dateFilter.start ? parseDate(dateFilter.start) : null;
     const end = dateFilter.end ? parseDate(dateFilter.end) : null;
     if (end) end.setHours(23, 59, 59, 999);
 
-    // Get all transactions for selected banks (regardless of date filter)
+    // Get all transactions for selected banks, respecting each bank's saldo_inicial_data
     const allBankTx = transactions.filter(t => {
       if (!allBanksSelected && !selectedBankIds.has(t.banco_id)) return false;
       const txDate = parseDate(t.data_pagamento);
       if (isNaN(txDate.getTime())) return false;
+
+      // Skip transactions before the bank's saldo_inicial_data
+      const bancoStartDate = bancoStartDateMap.get(t.banco_id);
+      if (bancoStartDate && txDate < bancoStartDate) return false;
+
       return true;
     });
 
     allBankTx.sort((a, b) => parseDate(a.data_pagamento).getTime() - parseDate(b.data_pagamento).getTime());
 
-    // Calculate running balance from ALL transactions (balance is never affected by date/unidade/search filters)
+    // Calculate running balance from ALL qualifying transactions
     const balanceByTxId = new Map<string, number>();
     let runningBal = bankInitialBalance;
     for (const t of allBankTx) {
@@ -81,7 +99,6 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
     }
 
     // Calculate the initial balance at the start of the date range
-    // This includes the bank's initial balance + all transactions BEFORE the filtered period
     let displayInitialBalance = bankInitialBalance;
     if (start) {
       for (const t of allBankTx) {
@@ -89,7 +106,7 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
         if (txDate < start) {
           displayInitialBalance = balanceByTxId.get(t.id) ?? displayInitialBalance;
         } else {
-          break; // allBankTx is sorted by date, no more pre-range transactions
+          break;
         }
       }
     }
@@ -119,8 +136,6 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
       }
     }
 
-    // Initial balance = accumulated balance at start of filtered period (or bank initial if no filter)
-    // Projected balance = last transaction's running balance (or initial if no transactions visible)
     const lastVisible = statementWithBalance.length > 0 ? statementWithBalance[statementWithBalance.length - 1].runningBalance : displayInitialBalance;
 
     return { statement: statementWithBalance, totalInitialBalance: displayInitialBalance, projectedBalance: lastVisible };
