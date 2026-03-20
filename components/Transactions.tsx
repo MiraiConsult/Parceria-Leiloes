@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Lancamento, User, Banco, Categoria, Leilao, Unidade, UnvalidatedTransaction, TransactionFilters } from '../types';
 import { formatCurrency, formatDate, parseDate } from '../utils/format';
-import { Check, X, Search, Filter, FileInput, Plus, Pencil, Trash2, Loader, ArrowUp, ArrowDown, ArrowUpDown, GripVertical, Printer } from 'lucide-react';
+import { Check, X, Search, Filter, FileInput, Plus, Pencil, Trash2, Loader, ArrowUp, ArrowDown, ArrowUpDown, GripVertical, Printer, Download } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { ImportModal } from './ImportModal';
 import { generateLancamentosTemplate } from '../utils/importExport';
@@ -317,6 +317,41 @@ const Transactions: React.FC<TransactionsProps> = ({
     );
   };
 
+  const bancoMap = useMemo(() => new Map(bancos.map(b => [b.id, b.nome])), [bancos]);
+
+  const handleExportCSV = () => {
+    const csvSep = ';';
+    const headers = ['Data', 'Descrição', 'Fornecedor', 'Rubrica', 'Banco', 'Leilão', 'Tipo', 'Valor (R$)', 'Status'];
+    const rows = displayedTransactions.map(t => {
+      const rubrica = t.categoria_id ? (categoryMap.get(t.categoria_id) || '') : '';
+      const banco = t.banco_id ? (bancoMap.get(t.banco_id) || '') : '';
+      const leilao = t.leilao_id ? (leilaoMap.get(t.leilao_id) || '') : '';
+      const valor = (Math.abs(Number(t.valor) || 0) / 100).toFixed(2).replace('.', ',');
+      const sinal = t.tipo?.toLowerCase() === 'receita' ? '' : '-';
+      return [
+        formatDate(t.data_pagamento),
+        `"${(t.descricao || '').replace(/"/g, '""')}"`,
+        `"${(t.fornecedor || '').replace(/"/g, '""')}"`,
+        `"${rubrica.replace(/"/g, '""')}"`,
+        banco,
+        `"${leilao.replace(/"/g, '""')}"`,
+        t.tipo || '',
+        `${sinal}${valor}`,
+        t.status || '',
+      ].join(csvSep);
+    });
+
+    const bom = '\uFEFF';
+    const csvContent = bom + [headers.join(csvSep), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `lancamentos_${filters.startDate || 'inicio'}_${filters.endDate || 'fim'}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 no-print">
@@ -324,6 +359,9 @@ const Transactions: React.FC<TransactionsProps> = ({
         <div className="flex gap-2">
            <button onClick={() => window.print()} className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-50 text-sm font-medium transition-colors">
               <Printer size={16} /> Imprimir
+           </button>
+           <button onClick={handleExportCSV} disabled={displayedTransactions.length === 0} className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-50 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+              <Download size={16} /> Exportar CSV
            </button>
            <button onClick={() => setIsImportModalOpen(true)} className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-50 text-sm font-medium transition-colors">
               <FileInput size={16} /> Importar Lançamentos
