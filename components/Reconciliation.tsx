@@ -74,7 +74,8 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
     const balanceByTxId = new Map<string, number>();
     let runningBal = bankInitialBalance;
     for (const t of allBankTx) {
-      const val = t.tipo === 'receita' ? (Number(t.valor) || 0) : -(Number(t.valor) || 0);
+      const absVal = Math.abs(Number(t.valor) || 0);
+      const val = (t.tipo?.toLowerCase() === 'receita') ? absVal : -absVal;
       runningBal += val;
       balanceByTxId.set(t.id, runningBal);
     }
@@ -86,7 +87,7 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
       for (const t of allBankTx) {
         const txDate = parseDate(t.data_pagamento);
         if (txDate < start) {
-          displayInitialBalance = balanceByTxId.get(t.id) || displayInitialBalance;
+          displayInitialBalance = balanceByTxId.get(t.id) ?? displayInitialBalance;
         } else {
           break; // allBankTx is sorted by date, no more pre-range transactions
         }
@@ -102,7 +103,7 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
       if (start && txDate < start) continue;
       if (end && txDate > end) continue;
 
-      const matchesUnidades = selectedUnidades.size === 0 || (t.unidade_id ? selectedUnidades.has(t.unidade_id) : false);
+      const matchesUnidades = selectedUnidades.size === 0 || (t.unidade_id ? selectedUnidades.has(t.unidade_id) : true);
       if (!matchesUnidades) continue;
 
       const desc = t.descricao || '';
@@ -114,7 +115,7 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
         rubrica.toLowerCase().includes(searchTerm.toLowerCase());
 
       if (matchesSearch) {
-        statementWithBalance.push({ ...t, runningBalance: balanceByTxId.get(t.id) || 0 });
+        statementWithBalance.push({ ...t, runningBalance: balanceByTxId.get(t.id) ?? 0 });
       }
     }
 
@@ -325,7 +326,7 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
                     <td className="px-6 py-4 text-center">
                        {t.conciliado ? (<span className="inline-flex items-center text-green-600 bg-green-50 px-2 py-1 rounded-full text-xs font-medium"><CheckCircle2 size={12} className="mr-1" /> Conciliado</span>) : (<span className="inline-flex items-center text-amber-700 bg-amber-50 px-2 py-1 rounded-full text-xs font-medium">Pendente</span>)}
                     </td>
-                    <td className={`px-6 py-4 text-right font-medium ${t.tipo === 'receita' ? 'text-green-600' : 'text-red-600'}`}>{t.tipo === 'receita' ? '+' : '-'}{formatCurrency(t.valor)}</td>
+                    <td className={`px-6 py-4 text-right font-medium ${t.tipo?.toLowerCase() === 'receita' ? 'text-green-600' : 'text-red-600'}`}>{t.tipo?.toLowerCase() === 'receita' ? '+' : '-'}{formatCurrency(Math.abs(t.valor))}</td>
                     <td className={`px-6 py-4 text-right font-semibold ${t.runningBalance >= 0 ? 'text-slate-600' : 'text-red-600'}`}>
                       {formatCurrency(t.runningBalance)}
                     </td>
