@@ -74,7 +74,9 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
     if (end) end.setHours(23, 59, 59, 999);
 
     // Get all transactions for selected banks, respecting each bank's saldo_inicial_data
+    // Exclude rejected transactions - they never actually happened in the bank
     const allBankTx = transactions.filter(t => {
+      if (t.status === 'rejeitado') return false;
       if (!allBanksSelected && !selectedBankIds.has(t.banco_id)) return false;
       const txDate = parseDate(t.data_pagamento);
       if (isNaN(txDate.getTime())) return false;
