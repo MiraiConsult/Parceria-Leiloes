@@ -58,7 +58,6 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
         .reduce((sum, b) => sum + (Number(b.saldo_inicial) || 0), 0);
 
     // Build a map of banco_id -> earliest allowed date (saldo_inicial_data)
-    // Transactions BEFORE this date are ignored (they're already included in saldo_inicial)
     const bancoStartDateMap = new Map<string, Date | null>();
     for (const b of selectedBancos) {
       if (b.saldo_inicial_data) {
@@ -68,20 +67,21 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
         bancoStartDateMap.set(b.id, null);
       }
     }
+    // Check if ANY selected bank has saldo_inicial_data configured
+    const hasSaldoInicialData = selectedBancos.some(b => b.saldo_inicial_data);
 
     const start = dateFilter.start ? parseDate(dateFilter.start) : null;
     const end = dateFilter.end ? parseDate(dateFilter.end) : null;
     if (end) end.setHours(23, 59, 59, 999);
 
-    // Get all transactions for selected banks, respecting each bank's saldo_inicial_data
-    // Exclude rejected transactions - they never actually happened in the bank
+    // Get transactions for selected banks, excluding rejected
     const allBankTx = transactions.filter(t => {
       if (t.status === 'rejeitado') return false;
       if (!allBanksSelected && !selectedBankIds.has(t.banco_id)) return false;
       const txDate = parseDate(t.data_pagamento);
       if (isNaN(txDate.getTime())) return false;
 
-      // Skip transactions before the bank's saldo_inicial_data
+      // If bank has saldo_inicial_data, skip transactions before that date
       const bancoStartDate = bancoStartDateMap.get(t.banco_id);
       if (bancoStartDate && txDate < bancoStartDate) return false;
 
@@ -90,51 +90,93 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
 
     allBankTx.sort((a, b) => parseDate(a.data_pagamento).getTime() - parseDate(b.data_pagamento).getTime());
 
-    // Calculate running balance from ALL qualifying transactions
-    const balanceByTxId = new Map<string, number>();
-    let runningBal = bankInitialBalance;
-    for (const t of allBankTx) {
-      const absVal = Math.abs(Number(t.valor) || 0);
-      const val = (t.tipo?.toLowerCase() === 'receita') ? absVal : -absVal;
-      runningBal += val;
-      balanceByTxId.set(t.id, runningBal);
-    }
+    // TWO modes of balance calculation:
+    //
+    // MODE 1 (saldo_inicial_data SET): Accumulate from saldo_inicial_data forward.
+    //   The saldo_inicial represents the balance AT saldo_inicial_data, and we add
+    //   all transactions from that date onward. Pre-range transactions adjust the
+    //   displayed initial balance.
+    //
+    // MODE 2 (saldo_inicial_data NOT SET — default):
+    //   saldo_inicial represents the balance at the START of the filtered period.
+    //   Only transactions IN the date range are counted. This matches the original
+    //   system behavior and avoids double-counting historical transactions.
 
-    // Calculate the initial balance at the start of the date range
     let displayInitialBalance = bankInitialBalance;
-    if (start) {
-      for (const t of allBankTx) {
-        const txDate = parseDate(t.data_pagamento);
-        if (txDate < start) {
-          displayInitialBalance = balanceByTxId.get(t.id) ?? displayInitialBalance;
-        } else {
-          break;
-        }
-      }
-    }
-
-    // Now filter for display (date, unidade, search)
     const statementWithBalance: StatementRow[] = [];
 
-    for (const t of allBankTx) {
-      const txDate = parseDate(t.data_pagamento);
+    if (hasSaldoInicialData) {
+      // MODE 1: Full accumulation from saldo_inicial_data
+      const balanceByTxId = new Map<string, number>();
+      let runningBal = bankInitialBalance;
+      for (const t of allBankTx) {
+        const absVal = Math.abs(Number(t.valor) || 0);
+        const val = (t.tipo?.toLowerCase() === 'receita') ? absVal : -absVal;
+        runningBal += val;
+        balanceByTxId.set(t.id, runningBal);
+      }
 
-      if (start && txDate < start) continue;
-      if (end && txDate > end) continue;
+      if (start) {
+        for (const t of allBankTx) {
+          const txDate = parseDate(t.data_pagamento);
+          if (txDate < start) {
+            displayInitialBalance = balanceByTxId.get(t.id) ?? displayInitialBalance;
+          } else {
+            break;
+          }
+        }
+      }
 
-      const matchesUnidades = selectedUnidades.size === 0 || (t.unidade_id ? selectedUnidades.has(t.unidade_id) : true);
-      if (!matchesUnidades) continue;
+      for (const t of allBankTx) {
+        const txDate = parseDate(t.data_pagamento);
+        if (start && txDate < start) continue;
+        if (end && txDate > end) continue;
 
-      const desc = t.descricao || '';
-      const forn = t.fornecedor || '';
-      const rubrica = t.categoria_id ? (categoryMap.get(t.categoria_id) || '') : '';
-      const matchesSearch = searchTerm === '' ||
-        desc.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        forn.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        rubrica.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesUnidades = selectedUnidades.size === 0 || (t.unidade_id ? selectedUnidades.has(t.unidade_id) : true);
+        if (!matchesUnidades) continue;
 
-      if (matchesSearch) {
-        statementWithBalance.push({ ...t, runningBalance: balanceByTxId.get(t.id) ?? 0 });
+        const desc = t.descricao || '';
+        const forn = t.fornecedor || '';
+        const rubrica = t.categoria_id ? (categoryMap.get(t.categoria_id) || '') : '';
+        const matchesSearch = searchTerm === '' ||
+          desc.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          forn.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          rubrica.toLowerCase().includes(searchTerm.toLowerCase());
+
+        if (matchesSearch) {
+          statementWithBalance.push({ ...t, runningBalance: balanceByTxId.get(t.id) ?? 0 });
+        }
+      }
+    } else {
+      // MODE 2: saldo_inicial + transactions in date range only
+      // This avoids double-counting when saldo_inicial already includes historical transactions
+      let runningBal = bankInitialBalance;
+
+      for (const t of allBankTx) {
+        const txDate = parseDate(t.data_pagamento);
+
+        // Skip transactions outside the date range entirely
+        if (start && txDate < start) continue;
+        if (end && txDate > end) continue;
+
+        const absVal = Math.abs(Number(t.valor) || 0);
+        const val = (t.tipo?.toLowerCase() === 'receita') ? absVal : -absVal;
+        runningBal += val;
+
+        const matchesUnidades = selectedUnidades.size === 0 || (t.unidade_id ? selectedUnidades.has(t.unidade_id) : true);
+        if (!matchesUnidades) continue;
+
+        const desc = t.descricao || '';
+        const forn = t.fornecedor || '';
+        const rubrica = t.categoria_id ? (categoryMap.get(t.categoria_id) || '') : '';
+        const matchesSearch = searchTerm === '' ||
+          desc.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          forn.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          rubrica.toLowerCase().includes(searchTerm.toLowerCase());
+
+        if (matchesSearch) {
+          statementWithBalance.push({ ...t, runningBalance: runningBal });
+        }
       }
     }
 
