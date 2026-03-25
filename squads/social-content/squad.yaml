@@ -1,0 +1,23 @@
+name: social-content
+title: "Social Content — Produção de Conteúdo para Redes Sociais"
+description: "Squad de produção de conteúdo para Instagram (Feed, Reels, Stories) e LinkedIn, com pesquisa, criação por plataforma, e revisão de qualidade."
+performance_mode: alta-performance
+language: "pt-BR"
+
+skills:
+  - web_search
+  - web_fetch
+
+data:
+  - pipeline/data/research-brief.md
+  - pipeline/data/domain-framework.md
+  - pipeline/data/quality-criteria.md
+  - pipeline/data/output-examples.md
+  - pipeline/data/anti-patterns.md
+  - pipeline/data/tone-of-voice.md
+
+formats:
+  - instagram-feed
+  - instagram-reels
+  - instagram-stories
+  - linkedin-post
