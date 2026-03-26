@@ -189,7 +189,8 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
   const handleToggleConciliado = async (ids: string[], newStatus: boolean) => {
     const actionIds = new Set(ids);
     setLoadingActions(prev => new Set([...prev, ...actionIds]));
-    
+    const scrollY = window.scrollY;
+
     const { data, error } = await supabase
       .from('lancamentos')
       .update({ conciliado: newStatus })
@@ -203,13 +204,14 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
         const updated = data.find(d => d.id === t.id);
         return updated ? { ...t, ...updated } : t;
       }));
-      setSelectedIds(new Set()); // Clear selection after bulk action
+      setSelectedIds(new Set());
     }
     setLoadingActions(prev => {
         const newSet = new Set(prev);
         actionIds.forEach(id => newSet.delete(id));
         return newSet;
     });
+    requestAnimationFrame(() => window.scrollTo(0, scrollY));
   };
 
   const handleDelete = async (ids: string[]) => {

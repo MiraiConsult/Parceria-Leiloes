@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { 
-  Banco, Leilao, LeilaoCategoria, Unidade, Categoria, User, CentroCusto 
+import {
+  Banco, Fornecedor, Leilao, LeilaoCategoria, Unidade, Categoria, User, CentroCusto
 } from '../types';
 import { Plus, Pencil, Trash2, Search, Loader, X, FileInput, DatabaseZap } from 'lucide-react';
 import { formatCurrency, formatDate, parseDateToISO } from '../utils/format';
@@ -17,7 +17,8 @@ type RegistryType =
   | 'unidades'
   | 'categorias'
   | 'users'
-  | 'centros_custo';
+  | 'centros_custo'
+  | 'fornecedores';
 
 interface RegistriesProps {
   bancos: Banco[];
@@ -35,6 +36,8 @@ interface RegistriesProps {
   currentUser: User;
   centros: CentroCusto[];
   setCentros: React.Dispatch<React.SetStateAction<CentroCusto[]>>;
+  fornecedores: Fornecedor[];
+  setFornecedores: React.Dispatch<React.SetStateAction<Fornecedor[]>>;
 }
 
 const tableMap: Record<string, { name: string, stateSetter: React.Dispatch<React.SetStateAction<unknown[]>>, data: unknown[] }> = {};
@@ -92,6 +95,7 @@ const Registries: React.FC<RegistriesProps> = (props) => {
   tableMap.leilao_categorias = { name: 'Cat. Leilão', stateSetter: props.setCatLeilao, data: props.catLeilao };
   tableMap.categorias = { name: 'Plano de Contas', stateSetter: props.setPlanoContas, data: props.planoContas };
   tableMap.centros_custo = { name: 'Centros de Custo', stateSetter: props.setCentros, data: props.centros };
+  tableMap.fornecedores = { name: 'Clientes/Fornecedores', stateSetter: props.setFornecedores, data: props.fornecedores };
   tableMap.users = { name: 'Usuários', stateSetter: props.setUsers, data: props.users };
 
   const handleDelete = async (id: string) => {
@@ -117,6 +121,7 @@ const Registries: React.FC<RegistriesProps> = (props) => {
       case 'leilao_categorias': return { nome: '' };
       case 'categorias': return { codigo: '', rubrica: '', centro: '', classificacao: 'DESPESA_FIXA' };
       case 'centros_custo': return { nome: '' };
+      case 'fornecedores': return { nome: '' };
       case 'users': return { name: '', email: '', role: 'colaborador', unidade_id: null, avatar: '', permissions: [] };
       default: return {};
     }
@@ -311,6 +316,8 @@ const Registries: React.FC<RegistriesProps> = (props) => {
         return <FormField label="Nome da Unidade"><input type="text" value={editingItem.nome} onChange={e => handleModalChange('nome', e.target.value)} className="w-full border border-slate-300 rounded-lg p-2" /></FormField>;
       case 'centros_custo':
         return <FormField label="Nome do Centro de Custo"><input type="text" value={editingItem.nome} onChange={e => handleModalChange('nome', e.target.value)} className="w-full border border-slate-300 rounded-lg p-2" /></FormField>;
+      case 'fornecedores':
+        return <FormField label="Nome do Cliente/Fornecedor"><input type="text" value={editingItem.nome} onChange={e => handleModalChange('nome', e.target.value)} className="w-full border border-slate-300 rounded-lg p-2" /></FormField>;
       case 'leiloes':
         return (<>
           <FormField label="Nome do Leilão"><input type="text" value={editingItem.nome} onChange={e => handleModalChange('nome', e.target.value)} className="w-full border border-slate-300 rounded-lg p-2" /></FormField>
@@ -363,6 +370,7 @@ const Registries: React.FC<RegistriesProps> = (props) => {
         case 'bancos': columns = [{key: 'nome', label: 'Nome'}, {key: 'codigo', label: 'Código'}, {key: 'saldo_inicial', label: 'Saldo Inicial', render: item => formatCurrency(item.saldo_inicial as number)}, {key: 'saldo_inicial_data', label: 'Data do Saldo', render: item => item.saldo_inicial_data ? formatDate(item.saldo_inicial_data as string) : '-'}]; break;
         case 'unidades': columns = [{key: 'nome', label: 'Nome'}]; break;
         case 'centros_custo': columns = [{key: 'nome', label: 'Nome'}]; break;
+        case 'fornecedores': columns = [{key: 'nome', label: 'Nome'}]; break;
         case 'leiloes': columns = [{key: 'nome', label: 'Nome'}, {key: 'data', label: 'Data', render: item => formatDate(item.data as string)}, {key: 'categoria_id', label: 'Categoria', render: item => props.catLeilao.find(c => c.id === item.categoria_id)?.nome || 'N/A'}]; break;
         case 'leilao_categorias': columns = [{key: 'nome', label: 'Nome'}]; break;
         case 'users': columns = [{key: 'name', label: 'Nome'}, {key: 'email', label: 'Email'}, {key: 'role', label: 'Perfil'}, {key: 'unidade_id', label: 'Unidade', render: item => props.unidades.find(u => u.id === item.unidade_id)?.nome || '-'}]; break;

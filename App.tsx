@@ -22,7 +22,7 @@ import { supabase } from './supabaseClient';
 import { Loader, ShieldOff } from 'lucide-react';
 import { Period } from './components/PeriodSelector';
 
-import { Banco, Categoria, Lancamento, Leilao, LeilaoCategoria, Unidade, User, CentroCusto, Previsao, UnvalidatedTransaction, TransactionFilters } from './types';
+import { Banco, Categoria, Fornecedor, Lancamento, Leilao, LeilaoCategoria, Unidade, User, CentroCusto, Previsao, UnvalidatedTransaction, TransactionFilters } from './types';
 import { parseDate } from './utils/format';
 import { 
   BANCOS, 
@@ -100,6 +100,7 @@ function App() {
   const [catLeilao, setCatLeilao] = useState<LeilaoCategoria[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [centros, setCentros] = useState<CentroCusto[]>([]);
+  const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
   // Transaction Modal State
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Partial<Lancamento> | null>(null);
@@ -136,7 +137,7 @@ function App() {
   const visibleTransactions = useMemo(() => {
     if (!currentUser) return [];
     if (currentUser.role === 'admin') return transactions;
-    return transactions.filter(t => t.created_by === currentUser.id);
+    return transactions.filter(t => t.created_by === currentUser.id && t.tipo !== 'receita');
   }, [transactions, currentUser]);
   
   const handleCellClick = ({ filters, title, dateField }: {
@@ -265,7 +266,7 @@ function App() {
       
       const [
         bancosRes, categoriasRes, leiloesRes, previsoesRes,
-        unidadesRes, catLeilaoRes, allUsersRes, centrosRes,
+        unidadesRes, catLeilaoRes, allUsersRes, centrosRes, fornecedoresRes,
       ] = await Promise.all([
         supabase.from('bancos').select('*'),
         supabase.from('categorias').select('*'),
@@ -275,9 +276,10 @@ function App() {
         supabase.from('leilao_categorias').select('*'),
         supabase.from('users').select('*'),
         supabase.from('centros_custo').select('*'),
+        supabase.from('fornecedores').select('*'),
       ]);
 
-      const responses = { bancosRes, categoriasRes, leiloesRes, previsoesRes, unidadesRes, catLeilaoRes, allUsersRes, centrosRes };
+      const responses = { bancosRes, categoriasRes, leiloesRes, previsoesRes, unidadesRes, catLeilaoRes, allUsersRes, centrosRes, fornecedoresRes };
       for (const [key, res] of Object.entries(responses)) {
         if (res.error) throw new Error(`Erro ao buscar ${key}: ${res.error.message}`);
       }
@@ -290,6 +292,7 @@ function App() {
       setCatLeilao(catLeilaoRes.data || []);
       setUsers(allUsersRes.data || []);
       setCentros(centrosRes.data || []);
+      setFornecedores(fornecedoresRes.data || []);
       setCurrentUser(userProfile);
 
       const currentPath = location.pathname.substring(1) || 'dashboard';
@@ -316,6 +319,7 @@ function App() {
         setCatLeilao(LEILAO_CATEGORIAS);
         setUsers([CURRENT_USER, ...OTHER_USERS]);
         setCentros(CENTROS_CUSTO);
+        setFornecedores([]);
         setCurrentUser(CURRENT_USER); // Use mock user
 
         if (location.pathname === '/' || location.pathname === '/login') {
@@ -389,6 +393,7 @@ function App() {
       setCatLeilao([]);
       setUsers([]);
       setCentros([]);
+      setFornecedores([]);
       navigate('/');
     }
   }, [session, currentUser, navigate]);
@@ -438,7 +443,7 @@ function App() {
         <Routes>
             <Route path="/dashboard" element={<ProtectedRoute viewId="dashboard" currentUser={currentUser}><Dashboard transactions={visibleTransactions} transactionsLoading={transactionsLoading} bancos={bancos} categories={categories} leiloes={leiloes} catLeilao={catLeilao} availableYears={availableYears} unidades={unidades} dashboardState={viewStates.dashboard} setDashboardState={(updates: Partial<ViewStates['dashboard']>) => setViewStates(p => ({ ...p, dashboard: { ...p.dashboard, ...updates } }))} /></ProtectedRoute>} />
             <Route path="/tutorial" element={<ProtectedRoute viewId="tutorial" currentUser={currentUser}><Tutorial /></ProtectedRoute>} />
-            <Route path="/registries" element={<ProtectedRoute viewId="registries" currentUser={currentUser}><Registries bancos={bancos} setBancos={setBancos} leiloes={leiloes} setLeiloes={setLeiloes} catLeilao={catLeilao} setCatLeilao={setCatLeilao} unidades={unidades} setUnidades={setUnidades} planoContas={categories} setPlanoContas={setCategories} users={users} setUsers={setUsers} currentUser={currentUser} centros={centros} setCentros={setCentros} /></ProtectedRoute>} />
+            <Route path="/registries" element={<ProtectedRoute viewId="registries" currentUser={currentUser}><Registries bancos={bancos} setBancos={setBancos} leiloes={leiloes} setLeiloes={setLeiloes} catLeilao={catLeilao} setCatLeilao={setCatLeilao} unidades={unidades} setUnidades={setUnidades} planoContas={categories} setPlanoContas={setCategories} users={users} setUsers={setUsers} currentUser={currentUser} centros={centros} setCentros={setCentros} fornecedores={fornecedores} setFornecedores={setFornecedores} /></ProtectedRoute>} />
             <Route path="/database" element={<ProtectedRoute viewId="database" currentUser={currentUser}><DatabaseExport transactions={visibleTransactions} categories={categories} leiloes={leiloes} bancos={bancos} unidades={unidades} users={users} catLeilao={catLeilao} centros={centros} /></ProtectedRoute>} />
             <Route path="/transactions" element={<ProtectedRoute viewId="transactions" currentUser={currentUser}><Transactions transactions={visibleTransactions} transactionsLoading={transactionsLoading} setTransactions={setTransactions} user={currentUser} bancos={bancos} categories={categories} leiloes={leiloes} unidades={unidades} unvalidatedTransactions={unvalidatedTransactions} setUnvalidatedTransactions={setUnvalidatedTransactions} filters={viewStates.transactions} setFilters={updater => setViewStates(p => ({ ...p, transactions: updater(p.transactions) }))} handleOpenModal={handleOpenTransactionModal} /></ProtectedRoute>} />
             <Route path="/reconciliation" element={<ProtectedRoute viewId="reconciliation" currentUser={currentUser}><Reconciliation transactions={visibleTransactions} setTransactions={setTransactions} user={currentUser} transactionsLoading={transactionsLoading} bancos={bancos} unidades={unidades} leiloes={leiloes} categories={categories} selectedBankIds={viewStates.reconciliation.selectedBankIds} setSelectedBankIds={ids => setViewStates(p => ({ ...p, reconciliation: { ...p.reconciliation, selectedBankIds: ids }}))} selectedUnidades={viewStates.reconciliation.selectedUnidades} setSelectedUnidades={ids => setViewStates(p => ({...p, reconciliation: { ...p.reconciliation, selectedUnidades: ids }}))} dateFilter={viewStates.reconciliation.dateFilter} setDateFilter={dateFilter => setViewStates(p => ({ ...p, reconciliation: { ...p.reconciliation, dateFilter } }))} handleOpenModal={handleOpenTransactionModal} /></ProtectedRoute>} />
@@ -465,6 +470,8 @@ function App() {
           categories={categories}
           leiloes={leiloes}
           unidades={unidades}
+          fornecedores={fornecedores}
+          setFornecedores={setFornecedores}
         />
       )}
 

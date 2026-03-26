@@ -106,6 +106,7 @@ const Transactions: React.FC<TransactionsProps> = ({
 
   const handleApprove = async (id: string) => {
     setLoading(id);
+    const scrollY = window.scrollY;
     const { data, error } = await supabase
       .from('lancamentos')
       .update({ status: 'aprovado', approved_by: user.id, conciliado: true })
@@ -119,25 +120,28 @@ const Transactions: React.FC<TransactionsProps> = ({
       setTransactions(prev => prev.map(t => t.id === id ? data as Lancamento : t));
     }
     setLoading(null);
+    requestAnimationFrame(() => window.scrollTo(0, scrollY));
   };
 
   const handleReject = async (id: string) => {
     const reason = window.prompt("Motivo da rejeição:");
     if (reason) {
       setLoading(id);
+      const scrollY = window.scrollY;
       const { data, error } = await supabase
         .from('lancamentos')
         .update({ status: 'rejeitado', motivo_rejeicao: reason })
         .eq('id', id)
         .select()
         .single();
-      
+
       if (error) {
         alert('Falha ao rejeitar o lançamento.');
       } else if (data) {
         setTransactions(prev => prev.map(t => t.id === id ? data as Lancamento : t));
       }
       setLoading(null);
+      requestAnimationFrame(() => window.scrollTo(0, scrollY));
     }
   };
   

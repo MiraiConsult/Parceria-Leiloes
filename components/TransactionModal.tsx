@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Lancamento, User, Banco, Categoria, Leilao, Unidade } from '../types';
+import { Lancamento, User, Banco, Categoria, Fornecedor, Leilao, Unidade } from '../types';
 import { formatCurrency, parseDate } from '../utils/format';
 import { X, Loader, Plus, Save, Trash2 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
@@ -27,6 +27,8 @@ interface TransactionModalProps {
   categories: Categoria[];
   leiloes: Leilao[];
   unidades: Unidade[];
+  fornecedores: Fornecedor[];
+  setFornecedores: React.Dispatch<React.SetStateAction<Fornecedor[]>>;
 }
 
 const FormField: React.FC<{ label: string; children: React.ReactNode; className?: string }> = ({ label, children, className }) => (
@@ -46,8 +48,14 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   categories,
   leiloes,
   unidades,
+  fornecedores,
+  setFornecedores,
 }) => {
   const [formData, setFormData] = useState<Partial<Lancamento>>(transaction || {});
+  const [fornecedorSearch, setFornecedorSearch] = useState('');
+  const [showFornecedorDropdown, setShowFornecedorDropdown] = useState(false);
+  const [addingFornecedor, setAddingFornecedor] = useState(false);
+  const fornecedorRef = React.useRef<HTMLDivElement>(null);
   const [modalLoading, setModalLoading] = useState(false);
   
   // Installment State
@@ -106,6 +114,52 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         setSplitItems([{ id: crypto.randomUUID(), categoria_id: '', valor: 0 }]);
     }
   }, [transaction, isEditing, isOpen]);
+
+  // Initialize fornecedor search from existing data
+  useEffect(() => {
+    if (isOpen) {
+      setFornecedorSearch(transaction?.fornecedor || '');
+    }
+  }, [isOpen, transaction]);
+
+  // Close fornecedor dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (fornecedorRef.current && !fornecedorRef.current.contains(e.target as Node)) {
+        setShowFornecedorDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filteredFornecedores = useMemo(() => {
+    if (!fornecedorSearch.trim()) return fornecedores;
+    return fornecedores.filter(f => f.nome.toLowerCase().includes(fornecedorSearch.toLowerCase()));
+  }, [fornecedores, fornecedorSearch]);
+
+  const handleSelectFornecedor = (f: Fornecedor) => {
+    setFornecedorSearch(f.nome);
+    handleFormChange('fornecedor', f.nome);
+    handleFormChange('fornecedor_id', f.id);
+    setShowFornecedorDropdown(false);
+  };
+
+  const handleAddFornecedor = async () => {
+    const nome = fornecedorSearch.trim();
+    if (!nome) return;
+    setAddingFornecedor(true);
+    const { data, error } = await supabase.from('fornecedores').insert({ nome }).select().single();
+    if (error) {
+      alert('Erro ao adicionar cliente/fornecedor: ' + error.message);
+    } else if (data) {
+      setFornecedores(prev => [...prev, data as Fornecedor]);
+      handleFormChange('fornecedor', data.nome);
+      handleFormChange('fornecedor_id', data.id);
+      setShowFornecedorDropdown(false);
+    }
+    setAddingFornecedor(false);
+  };
 
   useEffect(() => {
     if (formData.leilao_id) {
@@ -204,9 +258,6 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const handleSave = async () => {
     // --- Validation Start ---
     const requiredFields: (keyof Lancamento)[] = ['valor', 'data_pagamento', 'data_competencia', 'banco_id'];
-    if (!isSplit) {
-        requiredFields.push('categoria_id');
-    }
 
     const missingFields = requiredFields.filter(field => {
       const value = formData[field];
@@ -330,10 +381,11 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             tipo: formData.tipo,
             status: formData.status || 'pendente',
             conciliado: false, // Default to not reconciled
-            categoria_id: isSplit && splitItems.length > 0 ? splitItems[0].categoria_id : formData.categoria_id,
+            categoria_id: isSplit && splitItems.length > 0 ? splitItems[0].categoria_id : (formData.categoria_id || null),
             banco_id: formData.banco_id,
             leilao_id: formData.leilao_id || undefined,
             fornecedor: formData.fornecedor,
+            fornecedor_id: formData.fornecedor_id || null,
             unidade_id: formData.unidade_id || user.unidade_id || undefined,
             created_by: user.id,
             split_revenue: isSplit ? splitItems.map(i => ({ categoria_id: i.categoria_id, valor: Math.round(i.valor) })) : null,
@@ -370,18 +422,20 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           <div className="md:col-span-2">
             <FormField label="Tipo de Lançamento">
                 <div className="flex items-center space-x-2 bg-slate-100 p-1 rounded-lg max-w-sm">
-                    <button 
+                    <button
                         onClick={() => handleFormChange('tipo', 'despesa')}
                         className={`flex-1 text-center px-4 py-2 text-sm font-semibold rounded-md transition-all ${formData.tipo === 'despesa' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-600'}`}
                     >
                         Despesa
                     </button>
-                    <button 
+                    {user.role === 'admin' && (
+                    <button
                         onClick={() => handleFormChange('tipo', 'receita')}
                         className={`flex-1 text-center px-4 py-2 text-sm font-semibold rounded-md transition-all ${formData.tipo === 'receita' ? 'bg-white text-green-600 shadow-sm' : 'text-slate-600'}`}
                     >
                         Receita
                     </button>
+                    )}
                 </div>
             </FormField>
           </div>
@@ -398,13 +452,54 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 <FormField label="Competência"><input type="date" className="w-full border border-slate-300 rounded-lg p-2 disabled:bg-slate-100" value={formData.data_competencia} onChange={e => handleFormChange('data_competencia', e.target.value)} disabled={!!formData.leilao_id}/></FormField>
             </div>
             <FormField label="Cliente / Fornecedor (Opcional)">
-                <input
-                    type="text"
-                    placeholder="Vincular a um cliente ou fornecedor..."
-                    className="w-full border border-slate-300 rounded-lg p-2"
-                    value={formData.fornecedor || ''}
-                    onChange={e => handleFormChange('fornecedor', e.target.value)}
-                />
+                <div className="relative" ref={fornecedorRef}>
+                    <div className="flex gap-2">
+                        <div className="relative flex-1">
+                            <input
+                                type="text"
+                                placeholder="Buscar cliente ou fornecedor..."
+                                className="w-full border border-slate-300 rounded-lg p-2"
+                                value={fornecedorSearch}
+                                onChange={e => {
+                                    setFornecedorSearch(e.target.value);
+                                    handleFormChange('fornecedor', e.target.value);
+                                    handleFormChange('fornecedor_id', undefined);
+                                    setShowFornecedorDropdown(true);
+                                }}
+                                onFocus={() => setShowFornecedorDropdown(true)}
+                            />
+                        </div>
+                        <button
+                            type="button"
+                            onClick={handleAddFornecedor}
+                            disabled={addingFornecedor || !fornecedorSearch.trim() || fornecedores.some(f => f.nome.toLowerCase() === fornecedorSearch.trim().toLowerCase())}
+                            className="p-2 border border-slate-300 rounded-lg bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                            title="Adicionar novo cliente/fornecedor"
+                        >
+                            {addingFornecedor ? <Loader size={20} className="animate-spin"/> : <Plus size={20}/>}
+                        </button>
+                    </div>
+                    {showFornecedorDropdown && (fornecedorSearch.trim() || fornecedores.length > 0) && (
+                        <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            {filteredFornecedores.length > 0 ? (
+                                filteredFornecedores.map(f => (
+                                    <button
+                                        key={f.id}
+                                        type="button"
+                                        onClick={() => handleSelectFornecedor(f)}
+                                        className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 transition-colors"
+                                    >
+                                        {f.nome}
+                                    </button>
+                                ))
+                            ) : (
+                                <div className="px-3 py-2 text-sm text-slate-400">
+                                    Nenhum resultado. Clique no + para adicionar.
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
             </FormField>
              <FormField label="Conta / Banco">
                 <select className="w-full border border-slate-300 rounded-lg p-2 bg-white" value={formData.banco_id} onChange={e => handleFormChange('banco_id', e.target.value)}><option value="">Selecionar conta...</option>{bancos.map(b => <option key={b.id} value={b.id}>{b.nome}</option>)}</select>
