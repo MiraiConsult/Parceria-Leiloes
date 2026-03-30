@@ -19,6 +19,8 @@ interface ReconciliationProps {
   setSelectedBankIds: (ids: Set<string>) => void;
   selectedUnidades: Set<string>;
   setSelectedUnidades: (ids: Set<string>) => void;
+  leilaoFilter: Set<string>;
+  setLeilaoFilter: (ids: Set<string>) => void;
   dateFilter: { start: string; end: string };
   setDateFilter: (filter: { start: string; end: string }) => void;
   handleOpenModal: (transaction?: Lancamento) => void;
@@ -26,7 +28,8 @@ interface ReconciliationProps {
 
 const Reconciliation: React.FC<ReconciliationProps> = ({ 
   transactions, setTransactions, transactionsLoading, bancos, unidades, leiloes, categories,
-  selectedBankIds, setSelectedBankIds, selectedUnidades, setSelectedUnidades, 
+  selectedBankIds, setSelectedBankIds, selectedUnidades, setSelectedUnidades,
+  leilaoFilter, setLeilaoFilter,
   dateFilter, setDateFilter,
   handleOpenModal 
 }) => {
@@ -123,6 +126,9 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
       const matchesUnidades = selectedUnidades.size === 0 || (t.unidade_id ? selectedUnidades.has(t.unidade_id) : true);
       if (!matchesUnidades) continue;
 
+      const matchesLeilao = leilaoFilter.size === 0 || (t.leilao_id ? leilaoFilter.has(t.leilao_id) : false);
+      if (!matchesLeilao) continue;
+
       const desc = t.descricao || '';
       const forn = t.fornecedor || '';
       const rubrica = t.categoria_id ? (categoryMap.get(t.categoria_id) || '') : '';
@@ -139,7 +145,7 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
     const lastVisible = statementWithBalance.length > 0 ? statementWithBalance[statementWithBalance.length - 1].runningBalance : displayInitialBalance;
 
     return { statement: statementWithBalance, totalInitialBalance: displayInitialBalance, projectedBalance: lastVisible };
-  }, [transactions, selectedBankIds, bancos, dateFilter, selectedUnidades, searchTerm, categoryMap]);
+  }, [transactions, selectedBankIds, bancos, dateFilter, selectedUnidades, leilaoFilter, searchTerm, categoryMap]);
 
   useEffect(() => {
     setDisplayedStatement(filteredAndSortedStatement);
@@ -260,6 +266,13 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
             options={unidades}
             selectedIds={selectedUnidades}
             onSelectionChange={setSelectedUnidades}
+            className="min-w-[200px]"
+          />
+          <MultiSelectFilter
+            label="Leilão"
+            options={leiloes}
+            selectedIds={leilaoFilter}
+            onSelectionChange={setLeilaoFilter}
             className="min-w-[200px]"
           />
           <div className="relative min-w-[200px]">
