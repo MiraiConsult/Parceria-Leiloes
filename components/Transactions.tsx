@@ -523,11 +523,11 @@ const Transactions: React.FC<TransactionsProps> = ({
                                             <div className="absolute left-6 top-0 bottom-1/2 border-l-2 border-b-2 border-slate-300 w-3 rounded-bl-sm"></div>
                                             Repartição {splitIndex + 1}
                                         </td>
-                                        <td className="px-6 py-2"></td>
+                                        <td className="px-6 py-2 text-slate-500 truncate max-w-xs">{split.fornecedor || ''}</td>
                                         <td className="px-6 py-2 text-slate-600 truncate max-w-xs">
                                             {categoryMap.get(split.categoria_id) || split.categoria_id}
                                         </td>
-                                        <td className="px-6 py-2"></td>
+                                        <td className="px-6 py-2 text-slate-500 truncate max-w-xs">{split.leilao_id ? leilaoMap.get(split.leilao_id) : ''}</td>
                                         <td className={`px-6 py-2 text-right ${t.tipo === 'receita' ? 'text-green-600/80' : 'text-red-600/80'}`}>
                                             {formatCurrency(split.valor)}
                                         </td>

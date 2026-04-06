@@ -15,6 +15,8 @@ type SplitItem = {
   id: string;
   categoria_id: string;
   valor: number; // in cents
+  leilao_id?: string | null;
+  fornecedor?: string;
 };
 
 interface TransactionModalProps {
@@ -59,7 +61,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   
   // Split Revenue State
   const [isSplit, setIsSplit] = useState(false);
-  const [splitItems, setSplitItems] = useState<SplitItem[]>([{ id: crypto.randomUUID(), categoria_id: '', valor: 0 }]);
+  const [splitItems, setSplitItems] = useState<SplitItem[]>([{ id: crypto.randomUUID(), categoria_id: '', valor: 0, leilao_id: null, fornecedor: '' }]);
 
   const isEditing = useMemo(() => !!transaction?.id, [transaction]);
 
@@ -91,10 +93,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           id: crypto.randomUUID(),
           categoria_id: item.categoria_id,
           valor: item.valor,
+          leilao_id: item.leilao_id ?? null,
+          fornecedor: item.fornecedor ?? '',
         })));
       } else {
         setIsSplit(false);
-        setSplitItems([{ id: crypto.randomUUID(), categoria_id: '', valor: 0 }]);
+        setSplitItems([{ id: crypto.randomUUID(), categoria_id: '', valor: 0, leilao_id: null, fornecedor: '' }]);
       }
     } else {
         // Reset state for new transactions
@@ -103,7 +107,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         setCompetenceMode('fixed');
         setValueDistribution('divide');
         setIsSplit(false);
-        setSplitItems([{ id: crypto.randomUUID(), categoria_id: '', valor: 0 }]);
+        setSplitItems([{ id: crypto.randomUUID(), categoria_id: '', valor: 0, leilao_id: null, fornecedor: '' }]);
     }
   }, [transaction, isEditing, isOpen]);
 
@@ -169,7 +173,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             newFormData.categoria_id = '';
           }
         }
-        setSplitItems([{ id: crypto.randomUUID(), categoria_id: '', valor: 0 }]);
+        setSplitItems([{ id: crypto.randomUUID(), categoria_id: '', valor: 0, leilao_id: null, fornecedor: '' }]);
       }
       return newFormData;
     });
@@ -184,7 +188,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   };
 
   const addSplitItem = () => {
-    setSplitItems(prev => [...prev, { id: crypto.randomUUID(), categoria_id: '', valor: 0 }]);
+    setSplitItems(prev => [...prev, { id: crypto.randomUUID(), categoria_id: '', valor: 0, leilao_id: null, fornecedor: '' }]);
   };
   
   const removeSplitItem = (id: string) => {
@@ -238,7 +242,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             ...formData,
             valor: Math.round((formData.valor || 0) * 100), // Convert back to cents
             categoria_id: isSplit && splitItems.length > 0 ? splitItems[0].categoria_id : formData.categoria_id,
-            split_revenue: isSplit ? splitItems.map(i => ({ categoria_id: i.categoria_id, valor: Math.round(i.valor) })) : null,
+            split_revenue: isSplit ? splitItems.map(i => ({ categoria_id: i.categoria_id, valor: Math.round(i.valor), leilao_id: i.leilao_id || null, fornecedor: i.fornecedor || '' })) : null,
             leilao_id: formData.leilao_id || null,
             unidade_id: formData.unidade_id || null,
         };
@@ -273,6 +277,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         const splitProportions = isSplit && totalValue > 0
             ? splitItems.map(item => ({
                 categoria_id: item.categoria_id,
+                leilao_id: item.leilao_id || null,
+                fornecedor: item.fornecedor || '',
                 proportion: item.valor / totalValue,
               }))
             : [];
@@ -282,6 +288,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             if (isSplit) {
                 installmentSplitRevenue = splitProportions.map(p => ({
                     categoria_id: p.categoria_id,
+                    leilao_id: p.leilao_id,
+                    fornecedor: p.fornecedor,
                     valor: Math.round(inst.valor * p.proportion),
                   }));
                 
@@ -336,7 +344,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             fornecedor: formData.fornecedor,
             unidade_id: formData.unidade_id || user.unidade_id || undefined,
             created_by: user.id,
-            split_revenue: isSplit ? splitItems.map(i => ({ categoria_id: i.categoria_id, valor: Math.round(i.valor) })) : null,
+            split_revenue: isSplit ? splitItems.map(i => ({ categoria_id: i.categoria_id, valor: Math.round(i.valor), leilao_id: i.leilao_id || null, fornecedor: i.fornecedor || '' })) : null,
         };
 
         // Remove null/undefined properties before insert
@@ -453,11 +461,33 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 }}/> <span className="font-semibold text-slate-700">Dividir por Categoria/Rubrica</span></label>
                 {isSplit && (
                     <div className="mt-4 space-y-2 animate-fade-in">
-                        {splitItems.map(item => (
-                            <div key={item.id} className="grid grid-cols-[1fr_120px_auto] gap-2 items-center">
-                                <select className="w-full border border-slate-300 rounded-lg p-2 bg-white text-sm" value={item.categoria_id} onChange={e => handleSplitItemChange(item.id, 'categoria_id', e.target.value)}><option value="">Selecione a rubrica...</option>{splittableCategories.map(c => <option key={c.id} value={c.id}>{c.codigo} - {c.rubrica}</option>)}</select>
-                                <input type="number" placeholder="R$" className={`w-full border border-slate-300 rounded-lg p-2 text-sm text-right font-semibold ${formData.tipo === 'receita' ? 'text-green-700' : 'text-red-700'}`} value={item.valor / 100} onChange={e => handleSplitItemChange(item.id, 'valor', Math.round(parseFloat(e.target.value)*100))}/>
-                                <button onClick={() => removeSplitItem(item.id)} className="p-2 text-slate-400 hover:text-red-600"><Trash2 size={16}/></button>
+                        {splitItems.map((item, idx) => (
+                            <div key={item.id} className="border border-slate-200 rounded-lg p-2 bg-white space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-semibold text-slate-500">Repartição {idx + 1}</span>
+                                    <button onClick={() => removeSplitItem(item.id)} className="p-1 text-slate-400 hover:text-red-600"><Trash2 size={14}/></button>
+                                </div>
+                                <div className="grid grid-cols-[1fr_120px] gap-2 items-center">
+                                    <select className="w-full border border-slate-300 rounded-lg p-2 bg-white text-sm" value={item.categoria_id} onChange={e => handleSplitItemChange(item.id, 'categoria_id', e.target.value)}><option value="">Selecione a rubrica...</option>{splittableCategories.map(c => <option key={c.id} value={c.id}>{c.codigo} - {c.rubrica}</option>)}</select>
+                                    <input type="number" placeholder="R$" className={`w-full border border-slate-300 rounded-lg p-2 text-sm text-right font-semibold ${formData.tipo === 'receita' ? 'text-green-700' : 'text-red-700'}`} value={item.valor / 100} onChange={e => handleSplitItemChange(item.id, 'valor', Math.round(parseFloat(e.target.value)*100))}/>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <select
+                                        className="w-full border border-slate-300 rounded-lg p-2 bg-white text-sm"
+                                        value={item.leilao_id || ''}
+                                        onChange={e => handleSplitItemChange(item.id, 'leilao_id', e.target.value === '' ? null : e.target.value)}
+                                    >
+                                        <option value="">Leilão (opcional)</option>
+                                        {sortedLeiloes.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+                                    </select>
+                                    <input
+                                        type="text"
+                                        placeholder="Fornecedor (opcional)"
+                                        className="w-full border border-slate-300 rounded-lg p-2 text-sm"
+                                        value={item.fornecedor || ''}
+                                        onChange={e => handleSplitItemChange(item.id, 'fornecedor', e.target.value)}
+                                    />
+                                </div>
                             </div>
                         ))}
                         <button onClick={addSplitItem} className="text-sm font-medium text-brand-800 hover:text-brand-900 mt-2">+ Adicionar Divisão</button>
