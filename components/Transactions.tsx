@@ -51,6 +51,7 @@ const Transactions: React.FC<TransactionsProps> = ({
   // Local state for filters to provide a responsive UI
   const [localFilters, setLocalFilters] = useState<TransactionFilters>(filters);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showSplits, setShowSplits] = useState<boolean>(true);
 
   // Sync local filters if global filters change
   useEffect(() => {
@@ -166,6 +167,25 @@ const Transactions: React.FC<TransactionsProps> = ({
         alert('Erro ao excluir: ' + error.message);
     } else {
         setTransactions(prev => prev.filter(t => !ids.includes(t.id)));
+        setSelectedIds(new Set());
+    }
+    setLoading(null);
+  };
+
+  const handleBulkApprove = async (ids: string[]) => {
+    setLoading('bulk');
+    const { data, error } = await supabase
+      .from('lancamentos')
+      .update({ status: 'aprovado', approved_by: user.id, conciliado: true })
+      .in('id', ids)
+      .select();
+    if (error) {
+        alert('Erro ao aprovar/conciliar: ' + error.message);
+    } else if (data) {
+        setTransactions(prev => prev.map(t => {
+            const updated = data.find(d => d.id === t.id);
+            return updated ? { ...t, ...updated } : t;
+        }));
         setSelectedIds(new Set());
     }
     setLoading(null);
@@ -407,10 +427,22 @@ const Transactions: React.FC<TransactionsProps> = ({
                         Lançamentos Encontrados: <span className="font-bold text-slate-800">{transactionCount}</span>
                     </div>
                     {selectedIds.size > 0 && (
+                        <>
+                        <button onClick={() => handleBulkApprove(Array.from(selectedIds))} disabled={!!loading} className="flex items-center gap-1.5 bg-green-600 text-white px-3 py-1 rounded-md hover:bg-green-700 text-xs font-medium transition-colors shadow-sm">
+                            <Check size={14} /> Aprovar/Conciliar ({selectedIds.size})
+                        </button>
                         <button onClick={() => handleBulkDelete(Array.from(selectedIds))} disabled={!!loading} className="flex items-center gap-1.5 bg-red-600 text-white px-3 py-1 rounded-md hover:bg-red-700 text-xs font-medium transition-colors shadow-sm">
                             <Trash2 size={14} /> Excluir Selecionados ({selectedIds.size})
                         </button>
+                        </>
                     )}
+                    <button
+                        onClick={() => setShowSplits(s => !s)}
+                        className="flex items-center gap-1.5 bg-white border border-slate-300 text-slate-700 px-3 py-1 rounded-md hover:bg-slate-50 text-xs font-medium transition-colors shadow-sm"
+                        title={showSplits ? 'Ocultar repartições' : 'Exibir repartições'}
+                    >
+                        {showSplits ? 'Ocultar Repartições' : 'Exibir Repartições'}
+                    </button>
                 </div>
                 <div className="font-medium text-slate-600">
                     Saldo no Período Filtrado: <span className={`font-bold ${netTotalValue >= 0 ? 'text-sky-600' : 'text-red-600'}`}>{formatCurrency(netTotalValue)}</span>
@@ -514,7 +546,7 @@ const Transactions: React.FC<TransactionsProps> = ({
                                     </div>
                                     </td>
                                 </tr>
-                                {hasSplit && t.split_revenue!.map((split, splitIndex) => (
+                                {hasSplit && showSplits && t.split_revenue!.map((split, splitIndex) => (
                                     <tr key={`${t.id}-split-${splitIndex}`} className="bg-slate-50/30 border-t-0 text-sm">
                                         <td className="px-4 py-2 no-print"></td>
                                         <td className="px-2 py-2 no-print"></td>
