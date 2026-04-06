@@ -3,6 +3,7 @@ import { Lancamento, User, Banco, Categoria, Leilao, Unidade } from '../types';
 import { formatCurrency, parseDate } from '../utils/format';
 import { X, Loader, Plus, Save, Trash2 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
+import SearchableSelect from './SearchableSelect';
 
 type Installment = {
   id: string;
@@ -428,14 +429,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 </select>
             </FormField>
             <FormField label="Vincular ao Leilão (Opcional)">
-                <select 
-                    className="w-full border border-slate-300 rounded-lg p-2 bg-white" 
-                    value={formData.leilao_id || ''} 
-                    onChange={e => handleFormChange('leilao_id', e.target.value === '' ? null : e.target.value)}
-                >
-                    <option value="">Nenhum</option>
-                    {sortedLeiloes.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
-                </select>
+                <SearchableSelect
+                    options={sortedLeiloes}
+                    value={formData.leilao_id}
+                    onChange={id => handleFormChange('leilao_id', id)}
+                    placeholder="Nenhum"
+                />
             </FormField>
           </div>
 
@@ -472,14 +471,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                                     <input type="number" placeholder="R$" className={`w-full border border-slate-300 rounded-lg p-2 text-sm text-right font-semibold ${formData.tipo === 'receita' ? 'text-green-700' : 'text-red-700'}`} value={item.valor / 100} onChange={e => handleSplitItemChange(item.id, 'valor', Math.round(parseFloat(e.target.value)*100))}/>
                                 </div>
                                 <div className="grid grid-cols-2 gap-2">
-                                    <select
-                                        className="w-full border border-slate-300 rounded-lg p-2 bg-white text-sm"
-                                        value={item.leilao_id || ''}
-                                        onChange={e => handleSplitItemChange(item.id, 'leilao_id', e.target.value === '' ? null : e.target.value)}
-                                    >
-                                        <option value="">Leilão (opcional)</option>
-                                        {sortedLeiloes.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
-                                    </select>
+                                    <SearchableSelect
+                                        options={sortedLeiloes}
+                                        value={item.leilao_id}
+                                        onChange={id => handleSplitItemChange(item.id, 'leilao_id', id)}
+                                        placeholder="Leilão (opcional)"
+                                    />
                                     <input
                                         type="text"
                                         placeholder="Fornecedor (opcional)"
