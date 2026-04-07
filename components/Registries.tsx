@@ -286,12 +286,22 @@ const Registries: React.FC<RegistriesProps> = (props) => {
   };
 
   const filteredData = useMemo(() => {
-    if (!searchTerm) return tableMap[activeTab]?.data || [];
-    return (tableMap[activeTab]?.data || []).filter((item: Record<string, unknown>) =>
-      Object.values(item).some(val =>
-        String(val).toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    );
+    let data = tableMap[activeTab]?.data || [];
+    if (searchTerm) {
+      data = data.filter((item: Record<string, unknown>) =>
+        Object.values(item).some(val =>
+          String(val).toLowerCase().includes(searchTerm.toLowerCase())
+        )
+      );
+    }
+    if (activeTab === 'leiloes') {
+      data = [...data].sort((a, b) => {
+        const da = new Date(a.data as string).getTime();
+        const db = new Date(b.data as string).getTime();
+        return (isNaN(db) ? 0 : db) - (isNaN(da) ? 0 : da);
+      });
+    }
+    return data;
   }, [searchTerm, activeTab, props]);
 
   const renderModalContent = () => {
