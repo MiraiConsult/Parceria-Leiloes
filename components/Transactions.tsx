@@ -40,6 +40,7 @@ const Transactions: React.FC<TransactionsProps> = ({
   const [sortConfig, setSortConfig] = useState<{ key: SortKey, direction: SortDirection }>({ key: 'data_pagamento', direction: 'desc' });
   const leilaoMap = useMemo(() => new Map(leiloes.map(l => [l.id, l.nome])), [leiloes]);
   const categoryMap = useMemo(() => new Map(categories.map(c => [c.id, c.rubrica])), [categories]);
+  const categoryOptions = useMemo(() => categories.map(c => ({ id: c.id, nome: c.rubrica })), [categories]);
 
   // State for drag-and-drop reordering
   const [displayedTransactions, setDisplayedTransactions] = useState<Lancamento[]>([]);
@@ -220,8 +221,9 @@ const Transactions: React.FC<TransactionsProps> = ({
 
       const matchesLeilao = filters.leilaoFilter.size === 0 || (t.leilao_id ? filters.leilaoFilter.has(t.leilao_id) : false);
       const matchesUnidade = filters.unidadeFilter.size === 0 || (t.unidade_id ? filters.unidadeFilter.has(t.unidade_id) : false);
+      const matchesRubrica = filters.rubricaFilter.size === 0 || (t.categoria_id ? filters.rubricaFilter.has(t.categoria_id) : false);
 
-      return matchesText && matchesStatus && matchesDate && matchesLeilao && matchesUnidade;
+      return matchesText && matchesStatus && matchesDate && matchesLeilao && matchesUnidade && matchesRubrica;
     });
 
     if (sortConfig.key === 'manual') {
@@ -410,6 +412,16 @@ const Transactions: React.FC<TransactionsProps> = ({
                           options={unidades}
                           selectedIds={localFilters.unidadeFilter}
                           onSelectionChange={(ids) => updateLocalFilter('unidadeFilter', ids)}
+                          className="w-full"
+                        />
+                    </div>
+                    <div className="flex items-center gap-2 w-full md:w-auto flex-1">
+                        <label className="text-sm font-medium text-slate-500 shrink-0">Rubrica:</label>
+                        <MultiSelectFilter
+                          label="Rubrica"
+                          options={categoryOptions}
+                          selectedIds={localFilters.rubricaFilter}
+                          onSelectionChange={(ids) => updateLocalFilter('rubricaFilter', ids)}
                           className="w-full"
                         />
                     </div>

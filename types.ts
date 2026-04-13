@@ -109,6 +109,7 @@ export interface TransactionFilters {
   endDate: string;
   leilaoFilter: Set<string>;
   unidadeFilter: Set<string>;
+  rubricaFilter: Set<string>;
   currentPage: number;
 }
 

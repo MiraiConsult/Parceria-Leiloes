@@ -121,6 +121,7 @@ function App() {
       endDate: '',
       leilaoFilter: new Set<string>(),
       unidadeFilter: new Set<string>(),
+      rubricaFilter: new Set<string>(),
       currentPage: 1,
     },
     dashboard: { period: defaultPeriod, selectedUnidade: 'all', activeTab: 'overview', selectedLeilaoId: 'all' },

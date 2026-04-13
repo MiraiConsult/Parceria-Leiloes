@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Lancamento, Banco, Categoria, User, Unidade, Leilao } from '../types';
 import { formatCurrency, formatDate, parseDate } from '../utils/format';
-import { Landmark, TrendingUp, CheckCircle2, Loader, Pencil, Trash2, CheckSquare, XSquare, Plus, GripVertical, Search } from 'lucide-react';
+import { Landmark, TrendingUp, CheckCircle2, Loader, Pencil, Trash2, CheckSquare, XSquare, Plus, GripVertical, Search, Download } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import MultiSelectFilter from './MultiSelectFilter';
 import DatePickerInput from './DatePickerInput';
+import * as XLSX from 'xlsx';
 
 interface ReconciliationProps {
   transactions: Lancamento[];
@@ -245,6 +246,25 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
     });
   };
 
+  const handleExportXlsx = () => {
+    const rows = displayedStatement.map(t => ({
+      'Data': formatDate(t.data_pagamento),
+      'Descrição': t.descricao || '',
+      'Fornecedor': t.fornecedor || '',
+      'Rubrica': t.categoria_id ? (categoryMap.get(t.categoria_id) || '') : '',
+      'Banco': bancoMap.get(t.banco_id) || '',
+      'Leilão': t.leilao_id ? (leilaoMap.get(t.leilao_id) || '') : '',
+      'Conciliação': t.conciliado ? 'Conciliado' : 'Pendente',
+      'Tipo': t.tipo || '',
+      'Valor': (t.tipo?.toLowerCase() === 'receita' ? 1 : -1) * Math.abs(t.valor) / 100,
+      'Saldo': t.runningBalance / 100,
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Conciliação');
+    XLSX.writeFile(wb, `conciliacao_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -303,6 +323,9 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
               <Trash2 size={16} /> Excluir ({selectedIds.size})
             </button>
           )}
+          <button onClick={handleExportXlsx} className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-50 text-sm font-medium transition-colors shadow-sm">
+            <Download size={16} /> Exportar Excel
+          </button>
           <button onClick={() => handleOpenModal()} className="flex items-center gap-2 bg-brand-800 text-white px-4 py-2 rounded-lg hover:bg-brand-900 text-sm font-medium transition-colors shadow-sm">
             <Plus size={16} /> Novo Lançamento
           </button>
