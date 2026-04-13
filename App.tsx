@@ -346,6 +346,7 @@ function App() {
         const { data, error } = await supabase
           .from('lancamentos')
           .select('*')
+          .order('id')
           .range(offset, offset + BATCH_SIZE - 1);
 
         if (error) {
