@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Lancamento, User, Banco, Categoria, Leilao, Unidade, UnvalidatedTransaction, TransactionFilters } from '../types';
 import { formatCurrency, formatDate, parseDate } from '../utils/format';
-import { Check, X, Search, Filter, FileInput, Plus, Pencil, Trash2, Loader, ArrowUp, ArrowDown, ArrowUpDown, GripVertical, Printer } from 'lucide-react';
+import { Check, X, Search, Filter, FileInput, Plus, Pencil, Trash2, Loader, ArrowUp, ArrowDown, ArrowUpDown, GripVertical, Printer, Clock } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { ImportModal } from './ImportModal';
 import { generateLancamentosTemplate } from '../utils/importExport';
@@ -182,6 +182,25 @@ const Transactions: React.FC<TransactionsProps> = ({
       .select();
     if (error) {
         alert('Erro ao aprovar/conciliar: ' + error.message);
+    } else if (data) {
+        setTransactions(prev => prev.map(t => {
+            const updated = data.find(d => d.id === t.id);
+            return updated ? { ...t, ...updated } : t;
+        }));
+        setSelectedIds(new Set());
+    }
+    setLoading(null);
+  };
+
+  const handleBulkPending = async (ids: string[]) => {
+    setLoading('bulk');
+    const { data, error } = await supabase
+      .from('lancamentos')
+      .update({ status: 'pendente', approved_by: null, conciliado: false })
+      .in('id', ids)
+      .select();
+    if (error) {
+        alert('Erro ao marcar como pendente: ' + error.message);
     } else if (data) {
         setTransactions(prev => prev.map(t => {
             const updated = data.find(d => d.id === t.id);
@@ -439,14 +458,7 @@ const Transactions: React.FC<TransactionsProps> = ({
                         Lançamentos Encontrados: <span className="font-bold text-slate-800">{transactionCount}</span>
                     </div>
                     {selectedIds.size > 0 && (
-                        <>
-                        <button onClick={() => handleBulkApprove(Array.from(selectedIds))} disabled={!!loading} className="flex items-center gap-1.5 bg-green-600 text-white px-3 py-1 rounded-md hover:bg-green-700 text-xs font-medium transition-colors shadow-sm">
-                            <Check size={14} /> Aprovar/Conciliar ({selectedIds.size})
-                        </button>
-                        <button onClick={() => handleBulkDelete(Array.from(selectedIds))} disabled={!!loading} className="flex items-center gap-1.5 bg-red-600 text-white px-3 py-1 rounded-md hover:bg-red-700 text-xs font-medium transition-colors shadow-sm">
-                            <Trash2 size={14} /> Excluir Selecionados ({selectedIds.size})
-                        </button>
-                        </>
+                        <span className="text-xs font-semibold text-brand-800 bg-brand-50 px-2 py-1 rounded">{selectedIds.size} selecionado(s)</span>
                     )}
                     <button
                         onClick={() => setShowSplits(s => !s)}
@@ -634,6 +646,23 @@ const Transactions: React.FC<TransactionsProps> = ({
         />
       )}
       
+      {selectedIds.size > 0 && (
+          <div className="sticky bottom-0 left-0 right-0 bg-white/80 backdrop-blur-sm border-t border-slate-200 p-3 flex items-center justify-between shadow-top animate-fade-in-up z-30 no-print">
+              <span className="text-sm font-semibold text-slate-700">{selectedIds.size} {selectedIds.size === 1 ? 'lançamento selecionado' : 'lançamentos selecionados'}</span>
+              <div className="flex items-center gap-2">
+                  <button onClick={() => handleBulkApprove(Array.from(selectedIds))} disabled={!!loading} className="flex items-center gap-2 bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 text-sm font-medium">
+                      <Check size={16}/> Aprovar
+                  </button>
+                  <button onClick={() => handleBulkPending(Array.from(selectedIds))} disabled={!!loading} className="flex items-center gap-2 bg-amber-500 text-white px-3 py-1.5 rounded-lg hover:bg-amber-600 text-sm font-medium">
+                      <Clock size={16}/> Marcar Pendente
+                  </button>
+                  <button onClick={() => handleBulkDelete(Array.from(selectedIds))} disabled={!!loading} className="flex items-center gap-2 bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 text-sm font-medium">
+                      <Trash2 size={16}/> Excluir
+                  </button>
+              </div>
+          </div>
+      )}
+
       <ImportModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
