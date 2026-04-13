@@ -21,6 +21,8 @@ interface ReconciliationProps {
   setSelectedUnidades: (ids: Set<string>) => void;
   leilaoFilter: Set<string>;
   setLeilaoFilter: (ids: Set<string>) => void;
+  rubricaFilter: Set<string>;
+  setRubricaFilter: (ids: Set<string>) => void;
   dateFilter: { start: string; end: string };
   setDateFilter: (filter: { start: string; end: string }) => void;
   handleOpenModal: (transaction?: Lancamento) => void;
@@ -29,7 +31,7 @@ interface ReconciliationProps {
 const Reconciliation: React.FC<ReconciliationProps> = ({ 
   transactions, setTransactions, transactionsLoading, bancos, unidades, leiloes, categories,
   selectedBankIds, setSelectedBankIds, selectedUnidades, setSelectedUnidades,
-  leilaoFilter, setLeilaoFilter,
+  leilaoFilter, setLeilaoFilter, rubricaFilter, setRubricaFilter,
   dateFilter, setDateFilter,
   handleOpenModal 
 }) => {
@@ -39,6 +41,7 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
   const leilaoMap = useMemo(() => new Map(leiloes.map(l => [l.id, l.nome])), [leiloes]);
   const bancoMap = useMemo(() => new Map(bancos.map(b => [b.id, b.nome])), [bancos]);
   const categoryMap = useMemo(() => new Map(categories.map(c => [c.id, c.rubrica])), [categories]);
+  const categoryOptions = useMemo(() => categories.map(c => ({ id: c.id, nome: c.rubrica })), [categories]);
 
   const handleDateFilterChange = (field: 'start' | 'end', value: string) => {
     setDateFilter({ ...dateFilter, [field]: value });
@@ -129,6 +132,9 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
       const matchesLeilao = leilaoFilter.size === 0 || (t.leilao_id ? leilaoFilter.has(t.leilao_id) : false);
       if (!matchesLeilao) continue;
 
+      const matchesRubrica = rubricaFilter.size === 0 || (t.categoria_id ? rubricaFilter.has(t.categoria_id) : false);
+      if (!matchesRubrica) continue;
+
       const desc = t.descricao || '';
       const forn = t.fornecedor || '';
       const rubrica = t.categoria_id ? (categoryMap.get(t.categoria_id) || '') : '';
@@ -145,7 +151,7 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
     const lastVisible = statementWithBalance.length > 0 ? statementWithBalance[statementWithBalance.length - 1].runningBalance : displayInitialBalance;
 
     return { statement: statementWithBalance, totalInitialBalance: displayInitialBalance, projectedBalance: lastVisible };
-  }, [transactions, selectedBankIds, bancos, dateFilter, selectedUnidades, leilaoFilter, searchTerm, categoryMap]);
+  }, [transactions, selectedBankIds, bancos, dateFilter, selectedUnidades, leilaoFilter, rubricaFilter, searchTerm, categoryMap]);
 
   useEffect(() => {
     setDisplayedStatement(filteredAndSortedStatement);
@@ -273,6 +279,13 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
             options={leiloes}
             selectedIds={leilaoFilter}
             onSelectionChange={setLeilaoFilter}
+            className="min-w-[200px]"
+          />
+          <MultiSelectFilter
+            label="Rubrica"
+            options={categoryOptions}
+            selectedIds={rubricaFilter}
+            onSelectionChange={setRubricaFilter}
             className="min-w-[200px]"
           />
           <div className="relative min-w-[200px]">
