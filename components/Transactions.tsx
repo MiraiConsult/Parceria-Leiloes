@@ -41,6 +41,7 @@ const Transactions: React.FC<TransactionsProps> = ({
   const leilaoMap = useMemo(() => new Map(leiloes.map(l => [l.id, l.nome])), [leiloes]);
   const categoryMap = useMemo(() => new Map(categories.map(c => [c.id, c.rubrica])), [categories]);
   const categoryOptions = useMemo(() => categories.map(c => ({ id: c.id, nome: c.rubrica })), [categories]);
+  const unidadeMap = useMemo(() => new Map(unidades.map(u => [u.id, u.nome])), [unidades]);
 
   // State for drag-and-drop reordering
   const [displayedTransactions, setDisplayedTransactions] = useState<Lancamento[]>([]);
@@ -280,7 +281,9 @@ const Transactions: React.FC<TransactionsProps> = ({
           }
       }
       
-      return sortConfig.direction === 'asc' ? comparison : -comparison;
+      const result = sortConfig.direction === 'asc' ? comparison : -comparison;
+      if (result !== 0) return result;
+      return a.id.localeCompare(b.id);
     });
 
   }, [transactions, filters, sortConfig, leilaoMap, categoryMap]);
@@ -511,6 +514,7 @@ const Transactions: React.FC<TransactionsProps> = ({
                           <SortableHeader sortKey="fornecedor" label="Fornecedor" />
                           <th className="px-6 py-4 text-left font-medium">Rubrica</th>
                           <SortableHeader sortKey="leilao" label="Leilão" />
+                          <th className="px-6 py-4 text-left font-medium">Unidade</th>
                           <SortableHeader sortKey="valor" label="Valor" align="right" />
                           <SortableHeader sortKey="status" label="Status" align="center" className="no-print" />
                           <th className="px-6 py-4 text-right no-print">Ações</th>
@@ -557,6 +561,7 @@ const Transactions: React.FC<TransactionsProps> = ({
                                         {hasSplit ? 'Múltiplas Rubricas' : (t.categoria_id ? categoryMap.get(t.categoria_id) : '')}
                                     </td>
                                     <td className="px-6 py-4 text-slate-500 truncate max-w-xs">{t.leilao_id ? leilaoMap.get(t.leilao_id) : ''}</td>
+                                    <td className="px-6 py-4 text-slate-500">{t.unidade_id ? unidadeMap.get(t.unidade_id) : ''}</td>
                                     <td className={`px-6 py-4 text-right font-medium ${t.tipo === 'receita' ? 'text-green-600' : 'text-red-600'}`}>{t.tipo === 'receita' ? '+' : '-'}{formatCurrency(t.valor)}</td>
                                     <td className="px-6 py-4 text-center no-print"><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${t.status === 'aprovado' ? 'bg-green-100 text-green-800' : t.status === 'rejeitado' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>{t.status}</span></td>
                                     <td className="px-6 py-4 text-right no-print">
@@ -584,6 +589,7 @@ const Transactions: React.FC<TransactionsProps> = ({
                                             {categoryMap.get(split.categoria_id) || split.categoria_id}
                                         </td>
                                         <td className="px-6 py-2 text-slate-500 truncate max-w-xs">{split.leilao_id ? leilaoMap.get(split.leilao_id) : ''}</td>
+                                        <td className="px-6 py-2"></td>
                                         <td className={`px-6 py-2 text-right ${t.tipo === 'receita' ? 'text-green-600/80' : 'text-red-600/80'}`}>
                                             {formatCurrency(split.valor)}
                                         </td>
@@ -594,7 +600,7 @@ const Transactions: React.FC<TransactionsProps> = ({
                             </React.Fragment>
                            )
                         })}
-                        {displayedTransactions.length === 0 && (<tr><td colSpan={8} className="px-6 py-8 text-center text-slate-400">Nenhum lançamento encontrado.</td></tr>)}
+                        {displayedTransactions.length === 0 && (<tr><td colSpan={10} className="px-6 py-8 text-center text-slate-400">Nenhum lançamento encontrado.</td></tr>)}
                     </tbody>
                     <tfoot className="print-only">
                         <tr>

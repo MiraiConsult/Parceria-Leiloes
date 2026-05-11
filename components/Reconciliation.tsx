@@ -41,6 +41,7 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
 
   const leilaoMap = useMemo(() => new Map(leiloes.map(l => [l.id, l.nome])), [leiloes]);
   const bancoMap = useMemo(() => new Map(bancos.map(b => [b.id, b.nome])), [bancos]);
+  const unidadeMap = useMemo(() => new Map(unidades.map(u => [u.id, u.nome])), [unidades]);
   const categoryMap = useMemo(() => new Map(categories.map(c => [c.id, c.rubrica])), [categories]);
   const categoryCodeMap = useMemo(() => new Map(categories.map(c => [c.id, c.codigo])), [categories]);
   const categoryOptions = useMemo(() => categories.map(c => ({ id: c.id, nome: c.rubrica })), [categories]);
@@ -204,9 +205,13 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
     const actionIds = new Set(ids);
     setLoadingActions(prev => new Set([...prev, ...actionIds]));
     
+    const updateData: Record<string, unknown> = { conciliado: newStatus };
+    if (newStatus) {
+      updateData.status = 'aprovado';
+    }
     const { data, error } = await supabase
       .from('lancamentos')
-      .update({ conciliado: newStatus })
+      .update(updateData)
       .in('id', ids)
       .select();
 
@@ -256,6 +261,7 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
       'Rubrica': t.categoria_id ? (categoryMap.get(t.categoria_id) || '') : '',
       'Banco': bancoMap.get(t.banco_id) || '',
       'Leilão': t.leilao_id ? (leilaoMap.get(t.leilao_id) || '') : '',
+      'Unidade': t.unidade_id ? (unidadeMap.get(t.unidade_id) || '') : '',
       'Conciliação': t.conciliado ? 'Conciliado' : 'Pendente',
       'Tipo': t.tipo || '',
       'Valor': (t.tipo?.toLowerCase() === 'receita' ? 1 : -1) * Math.abs(t.valor) / 100,
@@ -360,6 +366,7 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
                   <th className="px-6 py-4">Rubrica</th>
                   <th className="px-6 py-4">Banco</th>
                   <th className="px-6 py-4">Leilão</th>
+                  <th className="px-6 py-4">Unidade</th>
                   <th className="px-6 py-4 w-40 text-center">Conciliação</th>
                   <th className="px-6 py-4 w-40 text-right">Valor</th>
                   <th className="px-6 py-4 w-40 text-right">Saldo do Dia</th>
@@ -389,6 +396,7 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
                     <td className="px-6 py-4 text-slate-500 truncate max-w-xs">{t.categoria_id ? categoryMap.get(t.categoria_id) : ''}</td>
                     <td className="px-6 py-4 text-slate-500">{bancoMap.get(t.banco_id)}</td>
                     <td className="px-6 py-4 text-slate-500 truncate max-w-xs">{t.leilao_id ? leilaoMap.get(t.leilao_id) : ''}</td>
+                    <td className="px-6 py-4 text-slate-500">{t.unidade_id ? unidadeMap.get(t.unidade_id) : ''}</td>
                     <td className="px-6 py-4 text-center">
                        {t.conciliado ? (<span className="inline-flex items-center text-green-600 bg-green-50 px-2 py-1 rounded-full text-xs font-medium"><CheckCircle2 size={12} className="mr-1" /> Conciliado</span>) : (<span className="inline-flex items-center text-amber-700 bg-amber-50 px-2 py-1 rounded-full text-xs font-medium">Pendente</span>)}
                     </td>
@@ -406,7 +414,7 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
                     </td>
                   </tr>
                 ))}
-                {displayedStatement.length === 0 && (<tr><td colSpan={11} className="px-6 py-8 text-center text-slate-400">Nenhuma movimentação para os filtros selecionados.</td></tr>)}
+                {displayedStatement.length === 0 && (<tr><td colSpan={12} className="px-6 py-8 text-center text-slate-400">Nenhuma movimentação para os filtros selecionados.</td></tr>)}
               </tbody>
             </table>
           </div>
