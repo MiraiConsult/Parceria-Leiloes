@@ -42,6 +42,7 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
   const leilaoMap = useMemo(() => new Map(leiloes.map(l => [l.id, l.nome])), [leiloes]);
   const bancoMap = useMemo(() => new Map(bancos.map(b => [b.id, b.nome])), [bancos]);
   const categoryMap = useMemo(() => new Map(categories.map(c => [c.id, c.rubrica])), [categories]);
+  const categoryCodeMap = useMemo(() => new Map(categories.map(c => [c.id, c.codigo])), [categories]);
   const categoryOptions = useMemo(() => categories.map(c => ({ id: c.id, nome: c.rubrica })), [categories]);
 
   const handleDateFilterChange = (field: 'start' | 'end', value: string) => {
@@ -251,6 +252,7 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
       'Data': formatDate(t.data_pagamento),
       'Descrição': t.descricao || '',
       'Fornecedor': t.fornecedor || '',
+      'Cód. Rubrica': t.categoria_id ? (categoryCodeMap.get(t.categoria_id) || '') : '',
       'Rubrica': t.categoria_id ? (categoryMap.get(t.categoria_id) || '') : '',
       'Banco': bancoMap.get(t.banco_id) || '',
       'Leilão': t.leilao_id ? (leilaoMap.get(t.leilao_id) || '') : '',
