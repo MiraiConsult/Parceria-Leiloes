@@ -201,7 +201,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   
   const splittableCategories = useMemo(() => {
     if (formData.tipo === 'receita') {
-        return categories.filter(c => c.classificacao === 'RECEITA');
+        return categories.filter(c => c.classificacao === 'RECEITA' || c.classificacao === 'NAO_OPERACIONAL');
     }
     return categories.filter(c => c.classificacao !== 'RECEITA');
   }, [categories, formData.tipo]);
