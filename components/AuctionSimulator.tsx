@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Leilao, Previsao, PrevisaoItem, Lancamento, Categoria } from '../types';
-import { formatCurrency, formatDate } from '../utils/format';
+import { formatCurrency, formatDate, parseDate } from '../utils/format';
 import { Plus, Trash2, Save, Copy, ChevronDown, ChevronUp, ArrowLeft, Search, Edit, Loader, Printer } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 
@@ -13,7 +13,8 @@ interface AuctionSimulatorProps {
   setPrevisoes: React.Dispatch<React.SetStateAction<Previsao[]>>;
 }
 
-const AuctionSimulator: React.FC<AuctionSimulatorProps> = ({ leiloes, categories, previsoes, setPrevisoes, transactionsLoading }) => {
+const AuctionSimulator: React.FC<AuctionSimulatorProps> = ({ leiloes: rawLeiloes, categories, previsoes, setPrevisoes, transactionsLoading }) => {
+  const leiloes = useMemo(() => [...rawLeiloes].sort((a, b) => parseDate(b.data).getTime() - parseDate(a.data).getTime()), [rawLeiloes]);
   const [viewState, setViewState] = useState<'list' | 'editor' | 'analysis'>('list');
   const [activeScenarioId, setActiveScenarioId] = useState<string | null>(null);
   const [scenarioName, setScenarioName] = useState('');
