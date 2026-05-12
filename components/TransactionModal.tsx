@@ -241,7 +241,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     if (isEditing) {
         const dataToUpdate = {
             ...formData,
-            valor: Math.round((formData.valor || 0) * 100), // Convert back to cents
+            valor: Math.round((formData.valor || 0) * 100),
+            conciliado: formData.status === 'aprovado',
             categoria_id: isSplit && splitItems.length > 0 ? splitItems[0].categoria_id : formData.categoria_id,
             split_revenue: isSplit ? splitItems.map(i => ({ categoria_id: i.categoria_id, valor: Math.round(i.valor), leilao_id: i.leilao_id || null, fornecedor: i.fornecedor || '' })) : null,
             leilao_id: formData.leilao_id || null,
@@ -308,7 +309,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 valor: inst.valor,
                 tipo: formData.tipo,
                 status: formData.status || 'pendente',
-                conciliado: false,
+                conciliado: (formData.status || 'pendente') === 'aprovado',
                 categoria_id: isSplit && splitItems.length > 0 ? splitItems[0].categoria_id : formData.categoria_id,
                 banco_id: formData.banco_id,
                 leilao_id: formData.leilao_id || undefined,
@@ -338,7 +339,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             valor: Math.round((formData.valor || 0) * 100),
             tipo: formData.tipo,
             status: formData.status || 'pendente',
-            conciliado: false, // Default to not reconciled
+            conciliado: (formData.status || 'pendente') === 'aprovado',
             categoria_id: isSplit && splitItems.length > 0 ? splitItems[0].categoria_id : formData.categoria_id,
             banco_id: formData.banco_id,
             leilao_id: formData.leilao_id || undefined,
