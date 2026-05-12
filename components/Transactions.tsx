@@ -44,11 +44,10 @@ const Transactions: React.FC<TransactionsProps> = ({
   const unidadeMap = useMemo(() => new Map(unidades.map(u => [u.id, u.nome])), [unidades]);
 
   // State for drag-and-drop reordering
-  const [displayedTransactions, setDisplayedTransactions] = useState<Lancamento[]>([]);
+  const [manualOrder, setManualOrder] = useState<Lancamento[] | null>(null);
   const dragItem = useRef<number | null>(null);
   const dragOverItem = useRef<number | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
-  const prevSortKey = useRef(sortConfig.key);
 
   // Local state for filters to provide a responsive UI
   const [localFilters, setLocalFilters] = useState<TransactionFilters>(filters);
@@ -60,10 +59,12 @@ const Transactions: React.FC<TransactionsProps> = ({
     setLocalFilters(filters);
   }, [filters]);
   
-  // Track previous sort key to prevent useEffect loop
+  // Clear manual order when sort/filter changes
   useEffect(() => {
-    prevSortKey.current = sortConfig.key;
-  });
+    if (sortConfig.key !== 'manual') {
+      setManualOrder(null);
+    }
+  }, [sortConfig.key]);
 
   // Debounce filter updates to the parent component for performance
   useEffect(() => {
@@ -297,15 +298,8 @@ const Transactions: React.FC<TransactionsProps> = ({
     return { transactionCount: count, netTotalValue: netTotal };
   }, [filteredAndSorted]);
 
-  // Sync displayed transactions when filters/sorting change
-  useEffect(() => {
-    // If we just entered manual sort mode via drag-and-drop, do not reset the list
-    if (sortConfig.key === 'manual' && prevSortKey.current !== 'manual') {
-      return;
-    }
-    setDisplayedTransactions(filteredAndSorted);
-  }, [filteredAndSorted, sortConfig.key]);
-  
+  const displayedTransactions = manualOrder ?? filteredAndSorted;
+
   // Drag and drop handler
   const handleDragSort = () => {
     if (dragItem.current === null || dragOverItem.current === null || dragItem.current === dragOverItem.current) {
@@ -318,11 +312,11 @@ const Transactions: React.FC<TransactionsProps> = ({
     const _transactions = [...displayedTransactions];
     const draggedItemContent = _transactions.splice(dragItem.current, 1)[0];
     _transactions.splice(dragOverItem.current, 0, draggedItemContent);
-    
+
     dragItem.current = null;
     dragOverItem.current = null;
-    
-    setDisplayedTransactions(_transactions);
+
+    setManualOrder(_transactions);
     setDraggedId(null);
     if (sortConfig.key !== 'manual') {
         setSortConfig({ key: 'manual', direction: 'asc' });
