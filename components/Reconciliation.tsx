@@ -253,20 +253,43 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
   };
 
   const handleExportXlsx = () => {
-    const rows = displayedStatement.map(t => ({
-      'Data': formatDate(t.data_pagamento),
-      'Descrição': t.descricao || '',
-      'Fornecedor': t.fornecedor || '',
-      'Cód. Rubrica': t.categoria_id ? (categoryCodeMap.get(t.categoria_id) || '') : '',
-      'Rubrica': t.categoria_id ? (categoryMap.get(t.categoria_id) || '') : '',
-      'Banco': bancoMap.get(t.banco_id) || '',
-      'Leilão': t.leilao_id ? (leilaoMap.get(t.leilao_id) || '') : '',
-      'Unidade': t.unidade_id ? (unidadeMap.get(t.unidade_id) || '') : '',
-      'Conciliação': t.conciliado ? 'Conciliado' : 'Pendente',
-      'Tipo': t.tipo || '',
-      'Valor': (t.tipo?.toLowerCase() === 'receita' ? 1 : -1) * Math.abs(t.valor) / 100,
-      'Saldo': t.runningBalance / 100,
-    }));
+    const rows: Record<string, unknown>[] = [];
+    displayedStatement.forEach(t => {
+      const hasSplit = t.split_revenue && Array.isArray(t.split_revenue) && t.split_revenue.length > 0;
+      if (hasSplit) {
+        t.split_revenue!.forEach(split => {
+          rows.push({
+            'Data': formatDate(t.data_pagamento),
+            'Descrição': t.descricao || '',
+            'Fornecedor': split.fornecedor || t.fornecedor || '',
+            'Cód. Rubrica': split.categoria_id ? (categoryCodeMap.get(split.categoria_id) || '') : '',
+            'Rubrica': split.categoria_id ? (categoryMap.get(split.categoria_id) || '') : '',
+            'Banco': bancoMap.get(t.banco_id) || '',
+            'Leilão': split.leilao_id ? (leilaoMap.get(split.leilao_id) || '') : (t.leilao_id ? (leilaoMap.get(t.leilao_id) || '') : ''),
+            'Unidade': t.unidade_id ? (unidadeMap.get(t.unidade_id) || '') : '',
+            'Conciliação': t.conciliado ? 'Conciliado' : 'Pendente',
+            'Tipo': t.tipo || '',
+            'Valor': (t.tipo?.toLowerCase() === 'receita' ? 1 : -1) * Math.abs(split.valor) / 100,
+            'Saldo': '',
+          });
+        });
+      } else {
+        rows.push({
+          'Data': formatDate(t.data_pagamento),
+          'Descrição': t.descricao || '',
+          'Fornecedor': t.fornecedor || '',
+          'Cód. Rubrica': t.categoria_id ? (categoryCodeMap.get(t.categoria_id) || '') : '',
+          'Rubrica': t.categoria_id ? (categoryMap.get(t.categoria_id) || '') : '',
+          'Banco': bancoMap.get(t.banco_id) || '',
+          'Leilão': t.leilao_id ? (leilaoMap.get(t.leilao_id) || '') : '',
+          'Unidade': t.unidade_id ? (unidadeMap.get(t.unidade_id) || '') : '',
+          'Conciliação': t.conciliado ? 'Conciliado' : 'Pendente',
+          'Tipo': t.tipo || '',
+          'Valor': (t.tipo?.toLowerCase() === 'receita' ? 1 : -1) * Math.abs(t.valor) / 100,
+          'Saldo': t.runningBalance / 100,
+        });
+      }
+    });
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Conciliação');
