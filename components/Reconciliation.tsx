@@ -57,6 +57,7 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
   const dragOverItem = useRef<number | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [conciliacaoFilter, setConciliacaoFilter] = useState<'all' | 'pendente' | 'conciliado'>('all');
 
   const { statement: filteredAndSortedStatement, totalInitialBalance, projectedBalance } = useMemo(() => {
     const allBanksSelected = selectedBankIds.size === 0 || selectedBankIds.size === bancos.length;
@@ -147,14 +148,19 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
         rubrica.toLowerCase().includes(searchTerm.toLowerCase());
 
       if (matchesSearch) {
-        statementWithBalance.push({ ...t, runningBalance: balanceByTxId.get(t.id) ?? 0 });
+        const matchesConciliacao = conciliacaoFilter === 'all' ||
+          (conciliacaoFilter === 'conciliado' && t.conciliado) ||
+          (conciliacaoFilter === 'pendente' && !t.conciliado);
+        if (matchesConciliacao) {
+          statementWithBalance.push({ ...t, runningBalance: balanceByTxId.get(t.id) ?? 0 });
+        }
       }
     }
 
     const lastVisible = statementWithBalance.length > 0 ? statementWithBalance[statementWithBalance.length - 1].runningBalance : displayInitialBalance;
 
     return { statement: statementWithBalance, totalInitialBalance: displayInitialBalance, projectedBalance: lastVisible };
-  }, [transactions, selectedBankIds, bancos, dateFilter, selectedUnidades, leilaoFilter, rubricaFilter, searchTerm, categoryMap]);
+  }, [transactions, selectedBankIds, bancos, dateFilter, selectedUnidades, leilaoFilter, rubricaFilter, searchTerm, conciliacaoFilter, categoryMap]);
 
   useEffect(() => {
     setDisplayedStatement(filteredAndSortedStatement);
@@ -339,6 +345,15 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
             onSelectionChange={setRubricaFilter}
             className="min-w-[200px]"
           />
+          <select
+            value={conciliacaoFilter}
+            onChange={e => setConciliacaoFilter(e.target.value as 'all' | 'pendente' | 'conciliado')}
+            className="border border-slate-200 rounded-lg px-3 py-2 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          >
+            <option value="all">Todos os Status</option>
+            <option value="pendente">Pendentes</option>
+            <option value="conciliado">Conciliados</option>
+          </select>
           <div className="relative min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input
