@@ -284,7 +284,7 @@ const Transactions: React.FC<TransactionsProps> = ({
       
       const result = sortConfig.direction === 'asc' ? comparison : -comparison;
       if (result !== 0) return result;
-      return a.id.localeCompare(b.id);
+      return (a.created_at || '').localeCompare(b.created_at || '');
     });
 
   }, [transactions, filters, sortConfig, leilaoMap, categoryMap]);

@@ -60,23 +60,24 @@ export interface Leilao {
 
 export interface Lancamento {
   id: string;
-  data_pagamento: string; // Vencimento (Caixa)
-  data_competencia: string; // Competência (DRE)
+  data_pagamento: string;
+  data_competencia: string;
   descricao: string;
-  valor: number; // in cents
+  valor: number;
   tipo: 'receita' | 'despesa';
   status: 'pendente' | 'aprovado' | 'rejeitado';
   motivo_rejeicao?: string;
   conciliado: boolean;
-  categoria_id: string; // Refers to Plano de Contas
+  categoria_id: string;
   banco_id: string;
   leilao_id?: string;
-  fornecedor: string; // Keeping simple string for display, but ideally links to Fornecedor ID
+  fornecedor: string;
   fornecedor_id?: string;
   unidade_id?: string;
   created_by?: string;
+  created_at?: string;
   approved_by?: string;
-  split_revenue?: Json | null; // For splitting one revenue into multiple types
+  split_revenue?: Json | null;
 }
 
 export interface PrevisaoItem {
