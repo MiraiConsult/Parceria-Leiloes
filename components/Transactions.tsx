@@ -248,9 +248,18 @@ const Transactions: React.FC<TransactionsProps> = ({
     });
 
     if (sortConfig.key === 'manual') {
-        return filtered; // Do not sort if manual mode is active
+        const hasAnyOrder = filtered.some(t => t.sort_order != null);
+        if (hasAnyOrder) {
+          return [...filtered].sort((a, b) => {
+            const aOrder = a.sort_order ?? Number.MAX_SAFE_INTEGER;
+            const bOrder = b.sort_order ?? Number.MAX_SAFE_INTEGER;
+            if (aOrder !== bOrder) return aOrder - bOrder;
+            return (a.created_at || '').localeCompare(b.created_at || '');
+          });
+        }
+        return filtered;
     }
-    
+
     return [...filtered].sort((a, b) => {
       const key = sortConfig.key;
       let comparison = 0;
@@ -300,8 +309,8 @@ const Transactions: React.FC<TransactionsProps> = ({
 
   const displayedTransactions = manualOrder ?? filteredAndSorted;
 
-  // Drag and drop handler
-  const handleDragSort = () => {
+  // Drag and drop handler - persists order to database
+  const handleDragSort = async () => {
     if (dragItem.current === null || dragOverItem.current === null || dragItem.current === dragOverItem.current) {
         dragItem.current = null;
         dragOverItem.current = null;
@@ -315,12 +324,26 @@ const Transactions: React.FC<TransactionsProps> = ({
 
     dragItem.current = null;
     dragOverItem.current = null;
-
-    setManualOrder(_transactions);
     setDraggedId(null);
+
+    const updates = _transactions.map((t, i) => ({ id: t.id, sort_order: i }));
+    setManualOrder(_transactions.map((t, i) => ({ ...t, sort_order: i })));
     if (sortConfig.key !== 'manual') {
         setSortConfig({ key: 'manual', direction: 'asc' });
     }
+
+    for (let i = 0; i < updates.length; i += 500) {
+      const batch = updates.slice(i, i + 500);
+      const promises = batch.map(u =>
+        supabase.from('lancamentos').update({ sort_order: u.sort_order }).eq('id', u.id)
+      );
+      await Promise.all(promises);
+    }
+
+    setTransactions(prev => {
+      const orderMap = new Map(updates.map(u => [u.id, u.sort_order]));
+      return prev.map(t => orderMap.has(t.id) ? { ...t, sort_order: orderMap.get(t.id)! } : t);
+    });
   };
 
   // Pagination logic
