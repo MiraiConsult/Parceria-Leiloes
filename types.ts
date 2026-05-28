@@ -77,6 +77,7 @@ export interface Lancamento {
   created_by?: string;
   created_at?: string;
   approved_by?: string;
+  sort_order?: number | null;
   split_revenue?: Json | null;
 }
 
