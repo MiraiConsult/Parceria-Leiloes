@@ -69,17 +69,13 @@ const Transactions: React.FC<TransactionsProps> = ({
   // Debounce filter updates to the parent component for performance
   useEffect(() => {
     const handler = setTimeout(() => {
-      // Avoid unnecessary updates if filters haven't changed
-      if (JSON.stringify(localFilters) !== JSON.stringify(filters)) {
-        // When applying filters, always reset to the first page
-        setFilters(() => ({ ...localFilters, currentPage: 1 }));
-      }
-    }, 400); // 400ms debounce delay
+      setFilters(() => ({ ...localFilters, currentPage: 1 }));
+    }, 400);
 
     return () => {
       clearTimeout(handler);
     };
-  }, [localFilters, filters, setFilters]);
+  }, [localFilters, setFilters]);
 
   useEffect(() => {
     if (unvalidatedTransactions.length > 0 && activeTab !== 'validation') {
