@@ -30,8 +30,27 @@ const AnnualAuctions: React.FC<AnnualAuctionsProps> = ({ leiloes, lancamentos, t
 
   const processedData = useMemo(() => {
     const categoryMap = new Map<string, Categoria>(categories.map(c => [c.id, c]));
-    const lancamentosByLeilao = new Map<string, Lancamento[]>();
+
+    // Expand split transactions into one virtual lancamento per split item,
+    // each with its own categoria, valor and leilão (falling back to the parent's leilão)
+    const expandedLancamentos: Lancamento[] = [];
     lancamentos.forEach(l => {
+      if (l.split_revenue && Array.isArray(l.split_revenue) && l.split_revenue.length > 0) {
+        l.split_revenue.forEach(split => {
+          expandedLancamentos.push({
+            ...l,
+            categoria_id: split.categoria_id,
+            valor: split.valor,
+            leilao_id: split.leilao_id || l.leilao_id,
+          });
+        });
+      } else {
+        expandedLancamentos.push(l);
+      }
+    });
+
+    const lancamentosByLeilao = new Map<string, Lancamento[]>();
+    expandedLancamentos.forEach(l => {
       if (l.leilao_id) {
         if (!lancamentosByLeilao.has(l.leilao_id)) {
           lancamentosByLeilao.set(l.leilao_id, []);

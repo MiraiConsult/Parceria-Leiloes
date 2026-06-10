@@ -68,8 +68,8 @@ const CustomTooltip = ({ active, payload, label }: TooltipProps<number, string>)
 };
 
 
-const Dashboard: React.FC<DashboardProps> = ({ 
-  transactions, transactionsLoading, bancos, categories, leiloes, catLeilao, availableYears,
+const Dashboard: React.FC<DashboardProps> = ({
+  transactions: rawTransactions, transactionsLoading, bancos, categories, leiloes, catLeilao, availableYears,
   unidades, dashboardState, setDashboardState
 }) => {
   const { period, selectedUnidade, activeTab, selectedLeilaoId } = dashboardState;
@@ -127,6 +127,25 @@ const Dashboard: React.FC<DashboardProps> = ({
   const processedData = useMemo(() => {
     const selectedYear = period.primary.year;
     const selectedMonths = period.primary.months;
+
+    // Expand split transactions into one virtual lancamento per split item,
+    // so each portion is allocated to its own categoria and leilão
+    const expandedTransactions: Lancamento[] = [];
+    rawTransactions.forEach(t => {
+      if (t.split_revenue && Array.isArray(t.split_revenue) && t.split_revenue.length > 0) {
+        t.split_revenue.forEach(split => {
+          expandedTransactions.push({
+            ...t,
+            categoria_id: split.categoria_id,
+            valor: split.valor,
+            leilao_id: split.leilao_id || t.leilao_id,
+          });
+        });
+      } else {
+        expandedTransactions.push(t);
+      }
+    });
+    const transactions = expandedTransactions;
 
     const filterByPeriodAndUnit = (txs: Lancamento[], dateField: 'data_competencia' | 'data_pagamento', year: number, months: Set<number>) => txs.filter(t => {
         const date = parseDate(t[dateField]);
@@ -280,7 +299,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       },
       individualAuction: individualAuctionData,
     };
-  }, [period, selectedUnidade, transactions, bancos, categories, leiloes, catLeilao, treemapDrilldownPath, activeTab, selectedLeilaoId]);
+  }, [period, selectedUnidade, rawTransactions, bancos, categories, leiloes, catLeilao, treemapDrilldownPath, activeTab, selectedLeilaoId]);
 
   const handleTreemapClick = (data: { name?: string } | undefined) => {
     if (data && data.name && treemapDrilldownPath.length === 0) {
