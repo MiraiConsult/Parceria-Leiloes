@@ -2,7 +2,8 @@ import React, { useMemo } from 'react';
 import { Previsao, Categoria } from '../types';
 import MultiSelectFilter from './MultiSelectFilter';
 import { formatCurrency } from '../utils/format';
-import { BarChart3, Printer } from 'lucide-react';
+import { BarChart3, Printer, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 interface AuctionComparisonProps {
   previsoes: Previsao[];
@@ -91,14 +92,62 @@ const AuctionComparison: React.FC<AuctionComparisonProps> = ({
     return [...previsoes].map(p => ({ id: p.id, nome: p.nome_cenario, data: p.data_criacao })).sort((a,b) => b.data.localeCompare(a.data))
   }, [previsoes]);
 
+  const handleExportXlsx = () => {
+    const { selectedPrevisoes, receitaRows, despesaRows, auctionColumns } = processedData;
+    if (selectedPrevisoes.length === 0) return;
+    const headers = ['Rubrica', 'Fornecedor', ...selectedPrevisoes.map(p => p.nome_cenario)];
+    const rows: (string | number)[][] = [];
+
+    receitaRows.forEach(row => {
+      const r: (string | number)[] = [row.rubrica, ''];
+      selectedPrevisoes.forEach(p => {
+        const val = auctionColumns.get(p.id)?.receitas.get(row.catId) || 0;
+        r.push(val / 100);
+      });
+      rows.push(r);
+    });
+    const receitaTotals: (string | number)[] = ['TOTAL RECEITAS', ''];
+    selectedPrevisoes.forEach(p => receitaTotals.push((auctionColumns.get(p.id)?.totals.receitas || 0) / 100));
+    rows.push(receitaTotals);
+    rows.push([]);
+
+    despesaRows.forEach(row => {
+      const key = `${row.catId}-${row.fornecedor}`;
+      const r: (string | number)[] = [row.rubrica, row.fornecedor !== 'N/A' ? row.fornecedor : ''];
+      selectedPrevisoes.forEach(p => {
+        const val = auctionColumns.get(p.id)?.despesas.get(key) || 0;
+        r.push(val / 100);
+      });
+      rows.push(r);
+    });
+    const despesaTotals: (string | number)[] = ['TOTAL DESPESAS', ''];
+    selectedPrevisoes.forEach(p => despesaTotals.push((auctionColumns.get(p.id)?.totals.despesas || 0) / 100));
+    rows.push(despesaTotals);
+    rows.push([]);
+
+    const resultado: (string | number)[] = ['RESULTADO', ''];
+    selectedPrevisoes.forEach(p => resultado.push((auctionColumns.get(p.id)?.totals.resultado || 0) / 100));
+    rows.push(resultado);
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Comparativo');
+    XLSX.writeFile(wb, `comparativo_cenarios_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
   return (
     <div className="space-y-6">
       <div>
         <div className="flex justify-between items-center">
           <h2 className="text-2xl font-bold text-slate-800">Comparativo de Cenários de Leilão</h2>
-          <button onClick={() => window.print()} className="flex items-center gap-2 bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 shadow-sm transition-colors no-print">
-            <Printer size={18} /> Imprimir
-          </button>
+          <div className="flex items-center gap-2 no-print">
+            <button onClick={handleExportXlsx} disabled={selectedPrevisaoIds.size === 0} className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-50 shadow-sm transition-colors disabled:opacity-50">
+              <Download size={18} /> Exportar Excel
+            </button>
+            <button onClick={() => window.print()} className="flex items-center gap-2 bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 shadow-sm transition-colors">
+              <Printer size={18} /> Imprimir
+            </button>
+          </div>
         </div>
         <p className="text-slate-500 text-sm">Analise os resultados financeiros de múltiplos cenários lado a lado.</p>
       </div>
