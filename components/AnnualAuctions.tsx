@@ -15,6 +15,7 @@ interface AnnualAuctionsProps {
 }
 
 interface CalculatedData {
+  receitaEvento: number;
   comissao: number;
   inscricao: number;
   receitaTotal: number;
@@ -85,13 +86,14 @@ const AnnualAuctions: React.FC<AnnualAuctionsProps> = ({ leiloes, lancamentos, t
     const monthlyData: Record<number, { auctions: (Leilao & { calculated: CalculatedData })[], totals: CalculatedData }> = {};
 
     for (let i = 0; i < 12; i++) {
-        monthlyData[i] = { auctions: [], totals: { comissao: 0, inscricao: 0, receitaTotal: 0, recebido: 0, aReceber: 0, despProducao: 0, despOperacional: 0, saldo: 0 } };
+        monthlyData[i] = { auctions: [], totals: { receitaEvento: 0, comissao: 0, inscricao: 0, receitaTotal: 0, recebido: 0, aReceber: 0, despProducao: 0, despOperacional: 0, saldo: 0 } };
     }
 
     yearLeiloes.forEach(leilao => {
       const leilaoLancamentos = lancamentosByLeilao.get(leilao.id) || [];
-      const calculated: CalculatedData = { comissao: 0, inscricao: 0, receitaTotal: 0, recebido: 0, aReceber: 0, despProducao: 0, despOperacional: 0, saldo: 0 };
-      
+      const calculated: CalculatedData = { receitaEvento: 0, comissao: 0, inscricao: 0, receitaTotal: 0, recebido: 0, aReceber: 0, despProducao: 0, despOperacional: 0, saldo: 0 };
+      calculated.receitaEvento = leilao.receita_evento || 0;
+
       leilaoLancamentos.forEach(l => {
         const type = getCategoryType(l);
         if (l.tipo === 'receita') {
@@ -125,7 +127,7 @@ const AnnualAuctions: React.FC<AnnualAuctionsProps> = ({ leiloes, lancamentos, t
         });
     });
 
-    const annualTotal: CalculatedData = { comissao: 0, inscricao: 0, receitaTotal: 0, recebido: 0, aReceber: 0, despProducao: 0, despOperacional: 0, saldo: 0 };
+    const annualTotal: CalculatedData = { receitaEvento: 0, comissao: 0, inscricao: 0, receitaTotal: 0, recebido: 0, aReceber: 0, despProducao: 0, despOperacional: 0, saldo: 0 };
     Object.values(monthlyData).forEach(month => {
         Object.keys(annualTotal).forEach(key => {
             annualTotal[key as keyof CalculatedData] += month.totals[key as keyof CalculatedData];
@@ -147,7 +149,7 @@ const AnnualAuctions: React.FC<AnnualAuctionsProps> = ({ leiloes, lancamentos, t
 
   const handleExport = () => {
     const dataForExport: (string | number)[][] = [];
-    const headers = ["Mês/Leilão", "Data", "Comissão", "Inscrição", "Receita Total", "Recebido", "A Receber", "Desp. Produção", "Desp. Operacional", "Saldo do Leilão"];
+    const headers = ["Mês/Leilão", "Data", "Receita Evento", "Comissão", "Inscrição", "Receita Total", "Recebido (Comissão)", "A Receber (Comissão)", "Desp. Produção", "Desp. Operacional", "Saldo do Leilão"];
     dataForExport.push(headers);
     
     for (let i = 0; i < 12; i++) {
@@ -155,14 +157,14 @@ const AnnualAuctions: React.FC<AnnualAuctionsProps> = ({ leiloes, lancamentos, t
         if(month.auctions.length > 0) {
             dataForExport.push([
                 getMonthName(i).toUpperCase(), "",
-                month.totals.comissao/100, month.totals.inscricao/100, month.totals.receitaTotal/100,
+                month.totals.receitaEvento/100, month.totals.comissao/100, month.totals.inscricao/100, month.totals.receitaTotal/100,
                 month.totals.recebido/100, month.totals.aReceber/100, month.totals.despProducao/100,
                 month.totals.despOperacional/100, month.totals.saldo/100
             ]);
             month.auctions.forEach(a => {
                 dataForExport.push([
                     `  ${a.nome}`, formatDate(a.data),
-                    a.calculated.comissao/100, a.calculated.inscricao/100, a.calculated.receitaTotal/100,
+                    a.calculated.receitaEvento/100, a.calculated.comissao/100, a.calculated.inscricao/100, a.calculated.receitaTotal/100,
                     a.calculated.recebido/100, a.calculated.aReceber/100, a.calculated.despProducao/100,
                     a.calculated.despOperacional/100, a.calculated.saldo/100
                 ]);
@@ -172,7 +174,7 @@ const AnnualAuctions: React.FC<AnnualAuctionsProps> = ({ leiloes, lancamentos, t
 
     dataForExport.push([
         "TOTAL ANUAL", "",
-        processedData.annualTotal.comissao/100, processedData.annualTotal.inscricao/100, processedData.annualTotal.receitaTotal/100,
+        processedData.annualTotal.receitaEvento/100, processedData.annualTotal.comissao/100, processedData.annualTotal.inscricao/100, processedData.annualTotal.receitaTotal/100,
         processedData.annualTotal.recebido/100, processedData.annualTotal.aReceber/100, processedData.annualTotal.despProducao/100,
         processedData.annualTotal.despOperacional/100, processedData.annualTotal.saldo/100
     ]);
@@ -203,6 +205,7 @@ const AnnualAuctions: React.FC<AnnualAuctionsProps> = ({ leiloes, lancamentos, t
     return (
         <tr className={`${headerClass} ${footerClass} ${subRowClass}`}>
             <td className={`px-4 py-3 ${isSubRow ? 'pl-10' : ''}`}>{label}</td>
+            <td className="px-4 py-3">{data.receitaEvento ? formatCurrency(data.receitaEvento) : '-'}</td>
             <td className="px-4 py-3 text-green-600">{formatCurrency(data.comissao)}</td>
             <td className="px-4 py-3">{formatCurrency(data.inscricao)}</td>
             <td className="px-4 py-3 font-medium">{formatCurrency(data.receitaTotal)}</td>
@@ -247,6 +250,7 @@ const AnnualAuctions: React.FC<AnnualAuctionsProps> = ({ leiloes, lancamentos, t
               <thead className="bg-slate-50 text-slate-500 font-medium text-xs uppercase">
                   <tr>
                       <th className="px-4 py-3 text-left w-2/12">Mês / Leilão</th>
+                      <th className="px-4 py-3">Receita Evento</th>
                       <th className="px-4 py-3">Comissão</th>
                       <th className="px-4 py-3">Inscrição</th>
                       <th className="px-4 py-3">Receita Total</th>
