@@ -54,8 +54,9 @@ export interface Leilao {
   id: string;
   nome: string;
   data: string;
-  categoria_id: string; // Refers to LeilaoCategoria
+  categoria_id: string;
   unidade_id: string;
+  receita_evento?: number | null;
 }
 
 export interface Lancamento {
