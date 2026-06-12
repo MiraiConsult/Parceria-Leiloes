@@ -59,13 +59,15 @@ const AnnualAuctions: React.FC<AnnualAuctionsProps> = ({ leiloes, lancamentos, t
       }
     });
 
+    const COMISSAO_CODIGOS = new Set(['1001', '1002', '1005', '1007', '1012']);
+    const INSCRICAO_CODIGOS = new Set(['1006']);
+
     const getCategoryType = (lancamento: Lancamento): string => {
       const category = categoryMap.get(lancamento.categoria_id);
       if (!category) return 'unknown';
-      const rubrica = category.rubrica.toUpperCase();
       if (lancamento.tipo === 'receita') {
-        if (rubrica.includes('COMISSÃO')) return 'comissao';
-        if (rubrica.includes('INSCRIÇÃO') || rubrica.includes('ENTRADA')) return 'inscricao';
+        if (COMISSAO_CODIGOS.has(category.codigo)) return 'comissao';
+        if (INSCRICAO_CODIGOS.has(category.codigo)) return 'inscricao';
         return 'outraReceita';
       }
       if (lancamento.tipo === 'despesa') {
@@ -93,14 +95,15 @@ const AnnualAuctions: React.FC<AnnualAuctionsProps> = ({ leiloes, lancamentos, t
       leilaoLancamentos.forEach(l => {
         const type = getCategoryType(l);
         if (l.tipo === 'receita') {
-          if (l.status === 'aprovado') {
-            calculated.receitaTotal += l.valor;
-            calculated.recebido += l.valor;
-            if (type === 'comissao') calculated.comissao += l.valor;
-            if (type === 'inscricao') calculated.inscricao += l.valor;
-          } else if (l.status === 'pendente') {
-            calculated.aReceber += l.valor;
+          if (type === 'comissao') {
+            calculated.comissao += l.valor;
+            if (l.status === 'aprovado') calculated.recebido += l.valor;
+            else if (l.status === 'pendente') calculated.aReceber += l.valor;
           }
+          if (type === 'inscricao' && l.status === 'aprovado') {
+            calculated.inscricao += l.valor;
+          }
+          if (l.status === 'aprovado') calculated.receitaTotal += l.valor;
         } else if (l.tipo === 'despesa' && l.status === 'aprovado') {
           if (type === 'despProducao') calculated.despProducao += l.valor;
           else if (type === 'despOperacional') calculated.despOperacional += l.valor;
@@ -247,8 +250,8 @@ const AnnualAuctions: React.FC<AnnualAuctionsProps> = ({ leiloes, lancamentos, t
                       <th className="px-4 py-3">Comissão</th>
                       <th className="px-4 py-3">Inscrição</th>
                       <th className="px-4 py-3">Receita Total</th>
-                      <th className="px-4 py-3">Recebido</th>
-                      <th className="px-4 py-3">A Receber</th>
+                      <th className="px-4 py-3">Recebido (Comissão)</th>
+                      <th className="px-4 py-3">A Receber (Comissão)</th>
                       <th className="px-4 py-3">Desp. Produção</th>
                       <th className="px-4 py-3">Desp. Operacional</th>
                       <th className="px-4 py-3">Saldo Leilão</th>
