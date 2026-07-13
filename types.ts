@@ -57,6 +57,7 @@ export interface Leilao {
   categoria_id: string;
   unidade_id: string;
   receita_evento?: number | null;
+  comissao_prevista?: number | null;
 }
 
 export interface Lancamento {
