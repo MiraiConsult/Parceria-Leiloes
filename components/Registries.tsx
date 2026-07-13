@@ -113,7 +113,7 @@ const Registries: React.FC<RegistriesProps> = (props) => {
     switch (tab) {
       case 'bancos': return { nome: '', codigo: '', saldo_inicial: 0, saldo_inicial_data: '' };
       case 'unidades': return { nome: '' };
-      case 'leiloes': return { nome: '', data: today, categoria_id: '', receita_evento: null };
+      case 'leiloes': return { nome: '', data: today, categoria_id: '', receita_evento: null, comissao_prevista: null };
       case 'leilao_categorias': return { nome: '' };
       case 'categorias': return { codigo: '', rubrica: '', centro: '', classificacao: 'DESPESA_FIXA' };
       case 'centros_custo': return { nome: '' };
@@ -325,7 +325,8 @@ const Registries: React.FC<RegistriesProps> = (props) => {
         return (<>
           <FormField label="Nome do Leilão"><input type="text" value={editingItem.nome} onChange={e => handleModalChange('nome', e.target.value)} className="w-full border border-slate-300 rounded-lg p-2" /></FormField>
           <FormField label="Data"><input type="date" value={parseDateToISO(editingItem.data)} onChange={e => handleModalChange('data', e.target.value)} className="w-full border border-slate-300 rounded-lg p-2" /></FormField>
-          <FormField label="Receita do Evento (R$)"><input type="number" step="0.01" placeholder="Faturamento total do leilão" value={editingItem.receita_evento != null ? editingItem.receita_evento / 100 : ''} onChange={e => handleModalChange('receita_evento', e.target.value === '' ? null : Math.round(parseFloat(e.target.value) * 100))} className="w-full border border-slate-300 rounded-lg p-2" /></FormField>
+          <FormField label="Faturamento do Evento (R$)"><input type="number" step="0.01" placeholder="Venda total do leilão" value={editingItem.receita_evento != null ? editingItem.receita_evento / 100 : ''} onChange={e => handleModalChange('receita_evento', e.target.value === '' ? null : Math.round(parseFloat(e.target.value) * 100))} className="w-full border border-slate-300 rounded-lg p-2" /></FormField>
+          <FormField label="Comissão Prevista (R$)"><input type="number" step="0.01" placeholder="Comissão esperada do leilão" value={editingItem.comissao_prevista != null ? editingItem.comissao_prevista / 100 : ''} onChange={e => handleModalChange('comissao_prevista', e.target.value === '' ? null : Math.round(parseFloat(e.target.value) * 100))} className="w-full border border-slate-300 rounded-lg p-2" /></FormField>
           <FormField label="Categoria"><select value={editingItem.categoria_id} onChange={e => handleModalChange('categoria_id', e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white"><option value="">Selecione</option>{props.catLeilao.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></FormField>
           <FormField label="Unidade"><select value={editingItem.unidade_id} onChange={e => handleModalChange('unidade_id', e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 bg-white"><option value="">Selecione</option>{props.unidades.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}</select></FormField>
         </>);
@@ -374,7 +375,7 @@ const Registries: React.FC<RegistriesProps> = (props) => {
         case 'bancos': columns = [{key: 'nome', label: 'Nome'}, {key: 'codigo', label: 'Código'}, {key: 'saldo_inicial', label: 'Saldo Inicial', render: item => formatCurrency(item.saldo_inicial as number)}, {key: 'saldo_inicial_data', label: 'Data do Saldo', render: item => item.saldo_inicial_data ? formatDate(item.saldo_inicial_data as string) : '-'}]; break;
         case 'unidades': columns = [{key: 'nome', label: 'Nome'}]; break;
         case 'centros_custo': columns = [{key: 'nome', label: 'Nome'}]; break;
-        case 'leiloes': columns = [{key: 'nome', label: 'Nome'}, {key: 'data', label: 'Data', render: item => formatDate(item.data as string)}, {key: 'receita_evento', label: 'Receita Evento', render: item => item.receita_evento ? formatCurrency(item.receita_evento as number) : '-'}, {key: 'categoria_id', label: 'Categoria', render: item => props.catLeilao.find(c => c.id === item.categoria_id)?.nome || 'N/A'}]; break;
+        case 'leiloes': columns = [{key: 'nome', label: 'Nome'}, {key: 'data', label: 'Data', render: item => formatDate(item.data as string)}, {key: 'receita_evento', label: 'Faturamento', render: item => item.receita_evento ? formatCurrency(item.receita_evento as number) : '-'}, {key: 'comissao_prevista', label: 'Comissão Prevista', render: item => item.comissao_prevista ? formatCurrency(item.comissao_prevista as number) : '-'}, {key: 'categoria_id', label: 'Categoria', render: item => props.catLeilao.find(c => c.id === item.categoria_id)?.nome || 'N/A'}]; break;
         case 'leilao_categorias': columns = [{key: 'nome', label: 'Nome'}]; break;
         case 'users': columns = [{key: 'name', label: 'Nome'}, {key: 'email', label: 'Email'}, {key: 'role', label: 'Perfil'}, {key: 'unidade_id', label: 'Unidade', render: item => props.unidades.find(u => u.id === item.unidade_id)?.nome || '-'}]; break;
     }
