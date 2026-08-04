@@ -167,13 +167,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     setFormData(prev => {
       const newFormData = { ...prev, [field]: value };
       if (field === 'tipo') {
-        const currentCategory = categories.find(c => c.id === prev.categoria_id);
-        if (currentCategory) {
-          const isReceita = currentCategory.classificacao === 'RECEITA';
-          if ((value === 'receita' && !isReceita) || (value === 'despesa' && isReceita)) {
-            newFormData.categoria_id = '';
-          }
-        }
+        // A rubrica continua válida nos dois tipos: rubricas de receita usadas em
+        // despesa (devolução, estorno) entram como redutoras no DRE, e vice-versa.
         setSplitItems([{ id: crypto.randomUUID(), categoria_id: '', valor: 0, leilao_id: null, fornecedor: '' }]);
       }
       return newFormData;
@@ -199,12 +194,30 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const totalDividido = useMemo(() => splitItems.reduce((acc, item) => acc + item.valor, 0), [splitItems]);
   const restanteADividir = useMemo(() => Math.round((formData.valor || 0) * 100) - totalDividido, [formData.valor, totalDividido]);
   
-  const splittableCategories = useMemo(() => {
-    if (formData.tipo === 'receita') {
-        return categories.filter(c => c.classificacao === 'RECEITA' || c.classificacao === 'NAO_OPERACIONAL');
-    }
-    return categories.filter(c => c.classificacao !== 'RECEITA');
+  // Todas as rubricas ficam disponíveis nos dois tipos, mas separadas em dois grupos:
+  // as usuais para o tipo escolhido e as do tipo oposto (devolução, estorno, ressarcimento),
+  // que entram com sinal invertido dentro do próprio bloco do DRE.
+  const categoryGroups = useMemo(() => {
+    const isUsual = (c: Categoria) => formData.tipo === 'receita'
+      ? (c.classificacao === 'RECEITA' || c.classificacao === 'NAO_OPERACIONAL')
+      : c.classificacao !== 'RECEITA';
+    return {
+      usuais: categories.filter(isUsual),
+      ajustes: categories.filter(c => !isUsual(c)),
+    };
   }, [categories, formData.tipo]);
+
+  const renderCategoryOptions = () => (
+    <>
+      <option value="">Selecione a rubrica...</option>
+      {categoryGroups.usuais.map(c => <option key={c.id} value={c.id}>{c.codigo} - {c.rubrica}</option>)}
+      {categoryGroups.ajustes.length > 0 && (
+        <optgroup label={formData.tipo === 'despesa' ? 'Ajustes / Estornos (rubricas de receita)' : 'Ajustes / Estornos (rubricas de despesa)'}>
+          {categoryGroups.ajustes.map(c => <option key={c.id} value={c.id}>{c.codigo} - {c.rubrica}</option>)}
+        </optgroup>
+      )}
+    </>
+  );
 
   const handleSave = async () => {
     // --- Validation Start ---
@@ -445,7 +458,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               <div className="bg-slate-50 p-4 rounded-lg border border-slate-200/80">
                   <FormField label="Categorização">
                       <div className="flex gap-2">
-                          <select className="w-full border border-slate-300 rounded-lg p-2 bg-white flex-1" value={formData.categoria_id} onChange={e => handleFormChange('categoria_id', e.target.value)}><option value="">Selecione a rubrica...</option>{categories.map(c => <option key={c.id} value={c.id}>{c.codigo} - {c.rubrica}</option>)}</select>
+                          <select className="w-full border border-slate-300 rounded-lg p-2 bg-white flex-1" value={formData.categoria_id} onChange={e => handleFormChange('categoria_id', e.target.value)}>{renderCategoryOptions()}</select>
                           <button className="p-2 border border-slate-300 rounded-lg bg-white hover:bg-slate-100"><Plus size={20}/></button>
                       </div>
                   </FormField>
@@ -468,7 +481,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                                     <button onClick={() => removeSplitItem(item.id)} className="p-1 text-slate-400 hover:text-red-600"><Trash2 size={14}/></button>
                                 </div>
                                 <div className="grid grid-cols-[1fr_120px] gap-2 items-center">
-                                    <select className="w-full border border-slate-300 rounded-lg p-2 bg-white text-sm" value={item.categoria_id} onChange={e => handleSplitItemChange(item.id, 'categoria_id', e.target.value)}><option value="">Selecione a rubrica...</option>{splittableCategories.map(c => <option key={c.id} value={c.id}>{c.codigo} - {c.rubrica}</option>)}</select>
+                                    <select className="w-full border border-slate-300 rounded-lg p-2 bg-white text-sm" value={item.categoria_id} onChange={e => handleSplitItemChange(item.id, 'categoria_id', e.target.value)}>{renderCategoryOptions()}</select>
                                     <input type="number" placeholder="R$" className={`w-full border border-slate-300 rounded-lg p-2 text-sm text-right font-semibold ${formData.tipo === 'receita' ? 'text-green-700' : 'text-red-700'}`} value={item.valor / 100} onChange={e => handleSplitItemChange(item.id, 'valor', Math.round(parseFloat(e.target.value)*100))}/>
                                 </div>
                                 <div className="grid grid-cols-2 gap-2">
