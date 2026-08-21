@@ -85,7 +85,7 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
     setExpandidas(new Set());
   };
 
-  // ---- repartição de um pagamento em várias rubricas ----
+  // ---- repartição de um lançamento em várias rubricas ----
 
   const somaDivisoes = (d: Divisao[]) => d.reduce((acc, i) => acc + (Number(i.valor) || 0), 0);
 
@@ -137,7 +137,7 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
       divisoes: l.divisoes.filter(d => d.id !== id),
     }));
 
-  /** Desfaz a repartição e volta ao pagamento inteiro numa rubrica só. */
+  /** Desfaz a repartição e volta ao valor inteiro numa rubrica só. */
   const desfazerDivisao = (l: LinhaImportacao) => {
     alterarLinha(l.chave, {
       divisoes: [],
@@ -231,7 +231,7 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
   /**
    * Confere no banco, no instante de gravar, se alguma linha marcada para
    * criar já não foi lançada. A lista da tela pode ter minutos de idade — e
-   * nesse meio-tempo outra pessoa pode ter lançado o mesmo pagamento.
+   * nesse meio-tempo outra pessoa pode ter lançado o mesmo movimento.
    * Devolve as chaves das linhas que precisam voltar para a revisão.
    */
   const conferirNoBanco = async (aCriar: LinhaImportacao[]): Promise<Map<string, Lancamento>> => {
@@ -581,28 +581,37 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                               {l.transacao.operacao}
                               {l.transacao.documento && ` · ${l.transacao.documento}`}
                             </div>
-                            {l.acao === 'conciliar' && l.existente && (
-                              <div className={`text-xs mt-1 rounded px-1.5 py-1 border ${l.ambiguo ? 'text-amber-800 bg-amber-100/70 border-amber-200' : 'text-sky-800 bg-sky-100/60 border-sky-200'}`}>
-                                <span className="flex items-start gap-1">
-                                  <Link2 size={12} className="flex-shrink-0 mt-0.5" />
-                                  <span>
-                                    <strong>Já existe no sistema.</strong>{' '}
-                                    {formatDate(l.existente.data_pagamento)} ·{' '}
-                                    {l.existente.fornecedor || l.existente.descricao?.slice(0, 40) || 'sem fornecedor'}
-                                    {l.existente.categoria_id && !lerDivisoes(l.existente).length && (
-                                      <> · {rubricaMap.get(l.existente.categoria_id) || 'rubrica removida'}</>
-                                    )}
-                                    <br />
-                                    <span className="text-sky-900">
-                                      Conciliar mantém esse lançamento e só marca que bateu com o banco. Nada é criado.
+                            {l.acao === 'conciliar' && alvoConciliacao(l) && (() => {
+                              const ja = alvoConciliacao(l)!;
+                              // Casou por data ou só por valor e pagador? No segundo caso a
+                              // data é outra — a equipe lança na data prevista e o banco
+                              // debita depois — e isso precisa estar dito na tela.
+                              const porAproximacao = !l.existente;
+                              return (
+                                <div className={`text-xs mt-1 rounded px-1.5 py-1 border ${l.ambiguo || porAproximacao ? 'text-amber-800 bg-amber-100/70 border-amber-200' : 'text-sky-800 bg-sky-100/60 border-sky-200'}`}>
+                                  <span className="flex items-start gap-1">
+                                    <Link2 size={12} className="flex-shrink-0 mt-0.5" />
+                                    <span>
+                                      <strong>Já existe no sistema.</strong>{' '}
+                                      {formatDate(ja.data_pagamento)} ·{' '}
+                                      {ja.fornecedor || ja.descricao?.slice(0, 40) || 'sem fornecedor'}
+                                      {ja.categoria_id && !lerDivisoes(ja).length && (
+                                        <> · {rubricaMap.get(ja.categoria_id) || 'rubrica removida'}</>
+                                      )}
+                                      <br />
+                                      <span className={porAproximacao ? 'text-amber-900' : 'text-sky-900'}>
+                                        {porAproximacao
+                                          ? 'Mesmo valor e mesmo pagador, em outra data — provavelmente lançado na data prevista. Confirme antes de conciliar.'
+                                          : 'Conciliar mantém esse lançamento e só marca que bateu com o banco. Nada é criado.'}
+                                      </span>
+                                      {l.ambiguo && (
+                                        <><br /><span className="text-amber-900">Há mais de um lançamento com esse valor no dia — confira qual é antes de efetivar.</span></>
+                                      )}
                                     </span>
-                                    {l.ambiguo && (
-                                      <><br /><span className="text-amber-900">Há mais de um lançamento com esse valor no dia — confira qual é antes de efetivar.</span></>
-                                    )}
                                   </span>
-                                </span>
-                              </div>
-                            )}
+                                </div>
+                              );
+                            })()}
                             {(l.alerta || l.duplicada) && l.acao !== 'conciliar' && (
                               <div className="text-xs mt-1 flex items-start gap-1 text-amber-800 bg-amber-100/70 border border-amber-200 rounded px-1.5 py-1">
                                 <TriangleAlert size={12} className="flex-shrink-0 mt-0.5" />
@@ -671,7 +680,7 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                                 )}
                                 <button
                                   onClick={() => abrirDivisao(l)}
-                                  title="Repartir este pagamento em várias rubricas"
+                                  title={`Repartir este ${l.transacao.tipo === 'credito' ? 'recebimento' : 'pagamento'} em várias rubricas`}
                                   className="p-1.5 text-slate-400 hover:text-brand-700 hover:bg-slate-100 rounded"
                                 >
                                   <Split size={14} />
@@ -727,6 +736,8 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                                     {l.acao === 'conciliar'
                                       ? 'Conciliar mantém este lançamento e as divisões como estão — nada é criado.'
                                       : 'Escolha "Conciliar" para manter este lançamento, ou "Criar" para gerar outro.'}
+                                    {' '}A soma das fatias é {formatCurrency(divisoesExistentes.reduce((a, d) => a + d.valor, 0))}
+                                    {' '}e o extrato traz {formatCurrency(l.transacao.valor)}.
                                   </p>
                                 </div>
                               </td>

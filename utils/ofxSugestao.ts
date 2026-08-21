@@ -89,6 +89,20 @@ const semelhanca = (a: string, b: string): number => {
   return comuns / (ta.size + tb.size - comuns);
 };
 
+/**
+ * Mesmo pagador? O nome do extrato quase nunca é igual ao do cadastro: a
+ * equipe escreve "M3 ASSISTÊNCIA RURAL LTDA/DIEGO FERREIRA NUNES" e o banco
+ * manda "M3 ASSISTENCIA RURAL LTDA". Exigir igualdade perderia justamente os
+ * casos que interessam.
+ */
+const mesmoPagador = (fornecedor: string, contraparte: string): boolean => {
+  const a = normalizarNome(fornecedor || '');
+  if (!a || !contraparte) return false;
+  if (a === contraparte) return true;
+  if (a.length >= 8 && contraparte.length >= 8 && (a.includes(contraparte) || contraparte.includes(a))) return true;
+  return semelhanca(a, contraparte) >= 0.6;
+};
+
 /** Rubrica que mais aparece num conjunto de lançamentos, com sua participação. */
 const rubricaDominante = (lancs: Lancamento[]): { categoria_id: string; share: number; n: number } => {
   const contagem = new Map<string, number>();
@@ -310,16 +324,18 @@ export const montarSugestoes = ({
       const parecidos = (candidatosPorValor.get(t.valor) ?? [])
         .filter(l => l.tipo === tipo && !jaTomados.has(l.id))
         .map(l => ({ l, dias: diasEntre(l.data_pagamento, t.data) }))
-        .filter(({ l, dias }) => {
-          const mesmoPagador = !!t.contraparte
-            && normalizarNome(l.fornecedor || '') === t.contraparte;
-          return dias <= (mesmoPagador ? ALERTA_DIAS_MESMO_PAGADOR : ALERTA_DIAS);
-        })
+        .filter(({ l, dias }) =>
+          dias <= (mesmoPagador(l.fornecedor, t.contraparte) ? ALERTA_DIAS_MESMO_PAGADOR : ALERTA_DIAS))
         .sort((a, b) => a.dias - b.dias);
 
       if (parecidos.length) {
+        // Com o mesmo pagador em cena, o mais provável é ser o mesmo
+        // movimento lançado com a data prevista; ordena o pagador na frente.
+        parecidos.sort((a, b) =>
+          Number(mesmoPagador(b.l.fornecedor, t.contraparte)) - Number(mesmoPagador(a.l.fornecedor, t.contraparte))
+          || a.dias - b.dias);
         const { l, dias } = parecidos[0];
-        const forte = !!t.contraparte && normalizarNome(l.fornecedor || '') === t.contraparte;
+        const forte = mesmoPagador(l.fornecedor, t.contraparte);
         alerta = {
           lancamento: l,
           forte,
@@ -375,9 +391,15 @@ export const montarSugestoes = ({
       if (!leilao_id) leilao_id = leilaoPorData(t.data, leiloes);
     }
 
-    // Quem parece já estar lançado não entra como criação por descuido: a
-    // linha nasce em "ignorar", com o aviso à vista, e quem revisa decide.
-    const acao: Acao = duplicada || alerta ? 'ignorar' : existente ? 'conciliar' : 'criar';
+    // Quem parece já estar lançado não entra como criação por descuido.
+    // Mesmo valor e mesmo pagador: quase certamente é o mesmo movimento
+    // lançado com outra data, então já nasce em "conciliar" — o aviso fica à
+    // vista para quem revisa discordar. Só o valor batendo é indício fraco
+    // demais para mexer em lançamento alheio: nasce em "ignorar".
+    const acao: Acao = duplicada ? 'ignorar'
+      : existente ? 'conciliar'
+        : alerta ? (alerta.forte ? 'conciliar' : 'ignorar')
+          : 'criar';
 
     linhas[i] = {
       chave: t.fitid || `${t.data}-${t.valor}-${i}`,
