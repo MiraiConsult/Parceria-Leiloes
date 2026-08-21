@@ -81,6 +81,11 @@ export interface Lancamento {
   approved_by?: string;
   sort_order?: number | null;
   split_revenue?: Json | null;
+  // Origem no extrato, preenchida pela importação de OFX. Guardar o FITID
+  // impede reimportar a mesma transação; guardar o memo faz a próxima
+  // importação aprender a rubrica com esta.
+  ofx_fitid?: string | null;
+  ofx_memo?: string | null;
 }
 
 export interface PrevisaoItem {
