@@ -1,12 +1,12 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react';
 import {
   UploadCloud, X, Loader, AlertTriangle, Landmark, CheckCircle2, Link2,
-  EyeOff, Sparkles, Search, ArrowLeft, CircleAlert,
+  EyeOff, Sparkles, Search, ArrowLeft, CircleAlert, TriangleAlert,
 } from 'lucide-react';
 import { Lancamento, Banco, Categoria, Leilao, User } from '../types';
 import { formatCurrency, formatDate } from '../utils/format';
 import { lerOfx, decodificarOfx, ContaOfx } from '../utils/ofx';
-import { montarSugestoes, resumir, LinhaImportacao, Acao, Confianca } from '../utils/ofxSugestao';
+import { montarSugestoes, resumir, alvoConciliacao, LinhaImportacao, Acao, Confianca } from '../utils/ofxSugestao';
 import { supabase } from '../supabaseClient';
 import SearchableSelect from './SearchableSelect';
 
@@ -55,7 +55,8 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
   const [bancoId, setBancoId] = useState('');
   const [linhas, setLinhas] = useState<LinhaImportacao[]>([]);
   const [busca, setBusca] = useState('');
-  const [filtroAcao, setFiltroAcao] = useState<'todas' | Acao>('todas');
+  type Filtro = 'todas' | Acao | 'jaLancados';
+  const [filtroAcao, setFiltroAcao] = useState<Filtro>('todas');
   const [statusNovo, setStatusNovo] = useState<'pendente' | 'aprovado'>('pendente');
   const [salvando, setSalvando] = useState(false);
   const [progresso, setProgresso] = useState('');
@@ -141,7 +142,11 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
   const visiveis = useMemo(() => {
     const termo = busca.trim().toLowerCase();
     return linhas.filter(l => {
-      if (filtroAcao !== 'todas' && l.acao !== filtroAcao) return false;
+      if (filtroAcao === 'jaLancados') {
+        if (!l.alerta && !l.duplicada) return false;
+      } else if (filtroAcao !== 'todas' && l.acao !== filtroAcao) {
+        return false;
+      }
       if (!termo) return true;
       return l.transacao.memo.toLowerCase().includes(termo)
         || l.fornecedor.toLowerCase().includes(termo);
@@ -153,19 +158,102 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
     () => linhas.filter(l => l.acao === 'criar' && !l.categoria_id).length,
     [linhas]);
 
+  /**
+   * Confere no banco, no instante de gravar, se alguma linha marcada para
+   * criar já não foi lançada. A lista da tela pode ter minutos de idade — e
+   * nesse meio-tempo outra pessoa pode ter lançado o mesmo pagamento.
+   * Devolve as chaves das linhas que precisam voltar para a revisão.
+   */
+  const conferirNoBanco = async (aCriar: LinhaImportacao[]): Promise<Map<string, Lancamento>> => {
+    const achados = new Map<string, Lancamento>();
+    if (!aCriar.length) return achados;
+
+    const datas = aCriar.map(l => l.transacao.data).sort();
+    const { data, error } = await supabase
+      .from('lancamentos')
+      .select('*')
+      .eq('banco_id', bancoId)
+      .gte('data_pagamento', datas[0])
+      .lte('data_pagamento', datas[datas.length - 1]);
+
+    if (error || !data) return achados;   // sem confirmação, segue o que a tela decidiu
+
+    const porChave = new Map<string, Lancamento[]>();
+    (data as Lancamento[]).forEach(l => {
+      const k = `${l.data_pagamento}|${l.valor}|${l.tipo}`;
+      if (!porChave.has(k)) porChave.set(k, []);
+      porChave.get(k)!.push(l);
+    });
+
+    // Os que a tela já resolveu como conciliação não contam de novo.
+    const reservados = new Set(
+      linhas.map(l => (l.acao === 'conciliar' ? alvoConciliacao(l)?.id : null)).filter(Boolean) as string[]);
+
+    aCriar.forEach(l => {
+      const tipo = l.transacao.tipo === 'credito' ? 'receita' : 'despesa';
+      const iguais = (porChave.get(`${l.transacao.data}|${l.transacao.valor}|${tipo}`) ?? [])
+        .filter(c => !reservados.has(c.id));
+      if (iguais.length) {
+        achados.set(l.chave, iguais[0]);
+        reservados.add(iguais[0].id);
+      }
+    });
+
+    return achados;
+  };
+
   const efetivar = async () => {
     if (bloqueadas > 0) {
       setErro(`${bloqueadas} lançamento(s) ainda estão sem rubrica. Escolha a rubrica ou marque como ignorar.`);
       return;
     }
+
+    const avisadas = linhas.filter(l => l.acao === 'criar' && (l.alerta || l.duplicada));
+    if (avisadas.length && !window.confirm(
+      `${avisadas.length} lançamento(s) marcados para criar já aparecem no sistema.\n\n` +
+      `Criar mesmo assim vai gerar valores repetidos no DRE e no fluxo de caixa.\n\n` +
+      `Confirma a criação desses ${avisadas.length}?`,
+    )) return;
+
     setSalvando(true);
     setErro('');
 
     const conta = contas[contaIdx];
-    const aCriar = linhas.filter(l => l.acao === 'criar');
-    const aConciliar = linhas.filter(l => l.acao === 'conciliar' && l.existente);
+    let aCriar = linhas.filter(l => l.acao === 'criar');
+    const aConciliar = linhas.filter(l => l.acao === 'conciliar' && alvoConciliacao(l));
 
     try {
+      setProgresso('Conferindo se já foram lançados...');
+      const jaLancados = await conferirNoBanco(aCriar);
+      if (jaLancados.size) {
+        // Nada é gravado nesta rodada: as linhas afetadas voltam para a tela
+        // marcadas como já lançadas, e quem revisa decide de novo.
+        setLinhas(prev => prev.map(l => {
+          const achado = jaLancados.get(l.chave);
+          if (!achado) return l;
+          return {
+            ...l,
+            acao: 'ignorar' as Acao,
+            existente: achado,
+            alerta: {
+              lancamento: achado,
+              forte: true,
+              texto: `já existe um lançamento de ${formatDate(achado.data_pagamento)} com esse valor`,
+            },
+            motivo: 'encontrado no banco na hora de gravar',
+          };
+        }));
+        setFiltroAcao('jaLancados');
+        setErro(
+          `${jaLancados.size} lançamento(s) já existiam no sistema e foram marcados como "ignorar". ` +
+          `Nada foi gravado. Reveja as linhas destacadas e efetive de novo.`,
+        );
+        setSalvando(false);
+        setProgresso('');
+        return;
+      }
+      aCriar = linhas.filter(l => l.acao === 'criar');
+
       // A coluna que guarda a origem no extrato é opcional: sem ela a
       // importação funciona igual, só perde a trava contra reimportar o mesmo
       // arquivo duas vezes e o aprendizado entre uma importação e a seguinte.
@@ -210,7 +298,7 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
       const conciliados: string[] = [];
       for (let i = 0; i < aConciliar.length; i += blocos) {
         setProgresso(`Conciliando ${i + 1}–${Math.min(i + blocos, aConciliar.length)} de ${aConciliar.length}...`);
-        const ids = aConciliar.slice(i, i + blocos).map(l => l.existente!.id);
+        const ids = aConciliar.slice(i, i + blocos).map(l => alvoConciliacao(l)!.id);
         const { error } = await supabase
           .from('lancamentos')
           .update({ conciliado: true })
@@ -337,19 +425,25 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                     ['criar', `Criar (${resumo.criar})`],
                     ['ignorar', `Ignorar (${resumo.ignorar})`],
                   ] as const).map(([valor, rotulo]) => (
-                    <button key={valor} onClick={() => setFiltroAcao(valor as 'todas' | Acao)}
+                    <button key={valor} onClick={() => setFiltroAcao(valor as Filtro)}
                             className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${filtroAcao === valor ? 'bg-brand-800 text-white border-brand-800' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-100'}`}>
                       {rotulo}
                     </button>
                   ))}
+                  {resumo.jaLancados > 0 && (
+                    <button onClick={() => setFiltroAcao('jaLancados')}
+                            className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors flex items-center gap-1 ${filtroAcao === 'jaLancados' ? 'bg-amber-600 text-white border-amber-600' : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'}`}>
+                      <TriangleAlert size={12} /> Já lançados ({resumo.jaLancados})
+                    </button>
+                  )}
                   {resumo.semRubrica > 0 && (
                     <span className="text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded-full px-3 py-1 font-semibold">
                       {resumo.semRubrica} sem rubrica
                     </span>
                   )}
-                  {resumo.duplicadas > 0 && (
-                    <span className="text-xs text-slate-600 bg-slate-100 border border-slate-200 rounded-full px-3 py-1 font-semibold">
-                      {resumo.duplicadas} já importadas antes
+                  {resumo.criarMesmoAvisado > 0 && (
+                    <span className="text-xs text-amber-900 bg-amber-100 border border-amber-300 rounded-full px-3 py-1 font-semibold">
+                      {resumo.criarMesmoAvisado} vão duplicar
                     </span>
                   )}
                   <div className="relative ml-auto">
@@ -363,8 +457,8 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                   <table className="w-full text-sm">
                     <thead className="bg-slate-100 sticky top-0 z-10">
                       <tr className="text-left text-xs uppercase tracking-wider text-slate-500">
-                        <th className="px-3 py-2 w-24">Ação</th>
-                        <th className="px-3 py-2 w-20">Data</th>
+                        <th className="px-3 py-2 w-32">Ação</th>
+                        <th className="px-3 py-2 w-24">Data</th>
                         <th className="px-3 py-2">Extrato</th>
                         <th className="px-3 py-2 w-28 text-right">Valor</th>
                         <th className="px-3 py-2 w-64">Rubrica</th>
@@ -375,17 +469,18 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                     <tbody className="divide-y divide-slate-100">
                       {visiveis.map(l => (
                         <tr key={l.chave} className={
-                          l.acao === 'ignorar' ? 'bg-slate-50 opacity-60'
-                            : l.acao === 'conciliar' ? 'bg-sky-50/40' : ''
+                          l.acao === 'criar' && (l.alerta || l.duplicada) ? 'bg-amber-50'
+                            : l.acao === 'ignorar' ? 'bg-slate-50 opacity-60'
+                              : l.acao === 'conciliar' ? 'bg-sky-50/40' : ''
                         }>
                           <td className="px-3 py-2 align-top">
                             <select
                               value={l.acao}
                               onChange={e => alterarLinha(l.chave, { acao: e.target.value as Acao })}
-                              className="border border-slate-300 rounded p-1 text-xs bg-white w-full"
+                              className="border border-slate-300 rounded px-2 py-1.5 text-xs bg-white w-full min-w-[104px] leading-normal"
                             >
                               <option value="criar">Criar</option>
-                              <option value="conciliar" disabled={!l.existente}>Conciliar</option>
+                              <option value="conciliar" disabled={!alvoConciliacao(l)}>Conciliar</option>
                               <option value="ignorar">Ignorar</option>
                             </select>
                           </td>
@@ -405,6 +500,26 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                                 <Link2 size={12} />
                                 {l.existente.descricao?.slice(0, 60) || 'lançamento existente'}
                                 {l.ambiguo && ' · mais de um candidato'}
+                              </div>
+                            )}
+                            {(l.alerta || l.duplicada) && l.acao !== 'conciliar' && (
+                              <div className="text-xs mt-1 flex items-start gap-1 text-amber-800 bg-amber-100/70 border border-amber-200 rounded px-1.5 py-1">
+                                <TriangleAlert size={12} className="flex-shrink-0 mt-0.5" />
+                                <span>
+                                  <strong>Já lançado.</strong>{' '}
+                                  {l.duplicada
+                                    ? 'esta transação veio de um extrato já importado'
+                                    : l.alerta?.texto}
+                                  {l.alerta && (
+                                    <>
+                                      {' — '}
+                                      <span className="text-amber-900">
+                                        {l.alerta.lancamento.fornecedor || l.alerta.lancamento.descricao?.slice(0, 40)}
+                                      </span>
+                                    </>
+                                  )}
+                                  {l.acao === 'criar' && ' · marcada para criar mesmo assim'}
+                                </span>
                               </div>
                             )}
                           </td>
