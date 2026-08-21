@@ -704,11 +704,17 @@ const Transactions: React.FC<TransactionsProps> = ({
         categories={categories}
         leiloes={leiloes}
         user={user}
-        onImported={(criados, conciliados) => {
+        onImported={(criados, conciliados, aprovados) => {
           const conciliadosSet = new Set(conciliados);
+          const aprovadosSet = new Set(aprovados);
           setTransactions(prev => [
             ...criados,
-            ...prev.map(t => conciliadosSet.has(t.id) ? { ...t, conciliado: true } : t),
+            ...prev.map(t => {
+              if (!conciliadosSet.has(t.id)) return t;
+              return aprovadosSet.has(t.id)
+                ? { ...t, conciliado: true, status: 'aprovado' as const, approved_by: user.id }
+                : { ...t, conciliado: true };
+            }),
           ]);
         }}
       />

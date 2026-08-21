@@ -22,7 +22,7 @@ interface OfxImportModalProps {
   categories: Categoria[];
   leiloes: Leilao[];
   user: User;
-  onImported: (criados: Lancamento[], conciliados: string[]) => void;
+  onImported: (criados: Lancamento[], conciliados: string[], aprovados: string[]) => void;
 }
 
 const CORES_CONFIANCA: Record<Confianca, string> = {
@@ -62,6 +62,7 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
   type Filtro = 'todas' | Acao | 'jaLancados';
   const [filtroAcao, setFiltroAcao] = useState<Filtro>('todas');
   const [statusNovo, setStatusNovo] = useState<'pendente' | 'aprovado'>('pendente');
+  const [aprovarAoConciliar, setAprovarAoConciliar] = useState(true);
   const [salvando, setSalvando] = useState(false);
   const [progresso, setProgresso] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -224,6 +225,9 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
   }, [linhas, busca, filtroAcao]);
 
   const resumo = useMemo(() => resumir(linhas), [linhas]);
+  const pendentesAConciliar = useMemo(
+    () => linhas.filter(l => l.acao === 'conciliar' && alvoConciliacao(l)?.status === 'pendente').length,
+    [linhas]);
   const bloqueadas = useMemo(
     () => linhas.filter(l => l.acao === 'criar' && !divisaoValida(l)).length,
     [linhas]);
@@ -381,23 +385,41 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
         criados.push(...(data as Lancamento[]));
       }
 
+      // O extrato é a prova de que o dinheiro entrou ou saiu, e é por isso
+      // que a aprovação acontece aqui: quem lança registra na data prevista,
+      // e quem confere o banco aprova. Só os pendentes são aprovados —
+      // rejeitado não volta à vida por conciliação, e aprovado já está.
       const conciliados: string[] = [];
-      for (let i = 0; i < aConciliar.length; i += blocos) {
-        setProgresso(`Conciliando ${i + 1}–${Math.min(i + blocos, aConciliar.length)} de ${aConciliar.length}...`);
-        const ids = aConciliar.slice(i, i + blocos).map(l => alvoConciliacao(l)!.id);
-        const { error } = await supabase
-          .from('lancamentos')
-          .update({ conciliado: true })
-          .in('id', ids);
-        if (error) throw new Error(`Falha ao conciliar: ${error.message}`);
-        conciliados.push(...ids);
+      const aprovados: string[] = [];
+      const grupos: { ids: string[]; aprovar: boolean }[] = [
+        { ids: aConciliar.filter(l => aprovarAoConciliar && alvoConciliacao(l)!.status === 'pendente')
+            .map(l => alvoConciliacao(l)!.id), aprovar: true },
+        { ids: aConciliar.filter(l => !(aprovarAoConciliar && alvoConciliacao(l)!.status === 'pendente'))
+            .map(l => alvoConciliacao(l)!.id), aprovar: false },
+      ];
+
+      for (const grupo of grupos) {
+        for (let i = 0; i < grupo.ids.length; i += blocos) {
+          setProgresso(`Conciliando ${conciliados.length + 1} de ${aConciliar.length}...`);
+          const ids = grupo.ids.slice(i, i + blocos);
+          const { error } = await supabase
+            .from('lancamentos')
+            .update(grupo.aprovar
+              ? { conciliado: true, status: 'aprovado', approved_by: user.id }
+              : { conciliado: true })
+            .in('id', ids);
+          if (error) throw new Error(`Falha ao conciliar: ${error.message}`);
+          conciliados.push(...ids);
+          if (grupo.aprovar) aprovados.push(...ids);
+        }
       }
 
-      onImported(criados, conciliados);
+      onImported(criados, conciliados, aprovados);
       alert(
         `Importação concluída.\n\n` +
         `${criados.length} lançamento(s) criado(s)\n` +
-        `${conciliados.length} conciliado(s) com lançamentos que já existiam\n` +
+        `${conciliados.length} conciliado(s) com lançamentos que já existiam` +
+        (aprovados.length ? ` (${aprovados.length} aprovado(s) pelo extrato)` : '') + `\n` +
         `${resumo.ignorar} ignorado(s)\n\n` +
         `Extrato: ${conta.conta} — ${formatDate(conta.inicio)} a ${formatDate(conta.fim)}`,
       );
@@ -597,6 +619,14 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                                       {ja.fornecedor || ja.descricao?.slice(0, 40) || 'sem fornecedor'}
                                       {ja.categoria_id && !lerDivisoes(ja).length && (
                                         <> · {rubricaMap.get(ja.categoria_id) || 'rubrica removida'}</>
+                                      )}
+                                      {ja.status === 'pendente' && (
+                                        <> · <span className="font-semibold">pendente</span>
+                                          {aprovarAoConciliar && <span className="text-emerald-700"> → será aprovado</span>}
+                                        </>
+                                      )}
+                                      {ja.status === 'rejeitado' && (
+                                        <> · <span className="font-semibold text-red-700">rejeitado</span></>
                                       )}
                                       <br />
                                       <span className={porAproximacao ? 'text-amber-900' : 'text-sky-900'}>
@@ -839,6 +869,17 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                   <option value="aprovado">Já aprovado</option>
                 </select>
               </div>
+
+              <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer"
+                     title="O extrato prova que o dinheiro entrou ou saiu; lançamentos pendentes que baterem com ele são aprovados. Rejeitados não são tocados.">
+                <input type="checkbox" checked={aprovarAoConciliar}
+                       onChange={e => setAprovarAoConciliar(e.target.checked)}
+                       className="rounded border-slate-300" />
+                Aprovar ao conciliar
+                {pendentesAConciliar > 0 && (
+                  <span className="text-xs text-slate-400">({pendentesAConciliar} pendente{pendentesAConciliar > 1 ? 's' : ''})</span>
+                )}
+              </label>
 
               <div className="flex items-center gap-4 text-sm ml-auto">
                 <span className="flex items-center gap-1 text-sky-700"><Link2 size={14} /> {resumo.conciliar} a conciliar</span>
