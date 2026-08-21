@@ -20,6 +20,33 @@ export interface Alerta {
   forte: boolean;             // mesmo pagador, além do mesmo valor
 }
 
+/**
+ * Uma fatia de um pagamento repartido em várias rubricas — o mesmo formato
+ * que o cadastro manual grava em `split_revenue`. Um PIX de R$ 100 pode ser
+ * 20 numa rubrica, 30 noutra e 50 numa terceira.
+ */
+export interface Divisao {
+  id: string;
+  categoria_id: string;
+  valor: number;              // centavos
+  leilao_id: string;
+  fornecedor: string;
+}
+
+/** Lê as divisões de um lançamento já gravado, para mostrar na tela. */
+export const lerDivisoes = (l: Lancamento | null): Divisao[] => {
+  if (!l?.split_revenue || !Array.isArray(l.split_revenue)) return [];
+  return (l.split_revenue as unknown as Divisao[])
+    .filter(d => d && typeof d === 'object')
+    .map((d, i) => ({
+      id: `${l.id}-${i}`,
+      categoria_id: String(d.categoria_id ?? ''),
+      valor: Number(d.valor) || 0,
+      leilao_id: d.leilao_id ? String(d.leilao_id) : '',
+      fornecedor: String(d.fornecedor ?? ''),
+    }));
+};
+
 export interface LinhaImportacao {
   chave: string;              // fitid, ou data+valor+índice quando o banco omite
   transacao: TransacaoOfx;
@@ -29,6 +56,7 @@ export interface LinhaImportacao {
   ambiguo: boolean;           // mais de um lançamento candidato à conciliação
   alerta: Alerta | null;      // parece já lançado, mas não o bastante para conciliar
   categoria_id: string;
+  divisoes: Divisao[];        // vazio = pagamento inteiro numa rubrica só
   leilao_id: string;
   fornecedor: string;
   descricao: string;
@@ -305,6 +333,7 @@ export const montarSugestoes = ({
     let categoria_id = existente?.categoria_id ?? '';
     let leilao_id = existente?.leilao_id ?? '';
     let fornecedor = existente?.fornecedor ?? t.contraparte;
+    let divisoes: Divisao[] = [];
     let confianca: Confianca = 'nenhuma';
     let motivo = '';
 
@@ -327,6 +356,21 @@ export const montarSugestoes = ({
         leilao_id = leilaoDominante(ref.lancs);
         const nomeConhecido = ref.lancs.find(l => l.fornecedor)?.fornecedor;
         if (ref.peso >= 0.8 && nomeConhecido) fornecedor = nomeConhecido;
+
+        // Pagamento recorrente que a equipe costuma repartir: se a referência
+        // é forte (mesmo texto ou mesmo pagador) e o valor é idêntico, repete
+        // a mesma abertura de rubricas. Valor diferente não herda — a divisão
+        // antiga não teria como fechar a conta.
+        if (ref.peso >= 0.95) {
+          const modelo = ref.lancs.find(l =>
+            Number(l.valor) === t.valor && lerDivisoes(l).length > 1);
+          if (modelo) {
+            divisoes = lerDivisoes(modelo).map((d, i) => ({ ...d, id: `sug-${i}` }));
+            categoria_id = divisoes[0].categoria_id;
+            motivo = `${ref.motivo}, repartida em ${divisoes.length} rubricas como antes`;
+            confianca = 'alta';
+          }
+        }
       }
       if (!leilao_id) leilao_id = leilaoPorData(t.data, leiloes);
     }
@@ -344,6 +388,7 @@ export const montarSugestoes = ({
       ambiguo: mesmaData.length > 1,
       alerta,
       categoria_id,
+      divisoes,
       leilao_id,
       fornecedor,
       descricao: t.memo,

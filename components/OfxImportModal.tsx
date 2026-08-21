@@ -2,11 +2,15 @@ import React, { useState, useMemo, useCallback, useRef } from 'react';
 import {
   UploadCloud, X, Loader, AlertTriangle, Landmark, CheckCircle2, Link2,
   EyeOff, Sparkles, Search, ArrowLeft, CircleAlert, TriangleAlert,
+  Split, Plus, Trash2, ChevronDown, ChevronRight,
 } from 'lucide-react';
 import { Lancamento, Banco, Categoria, Leilao, User } from '../types';
 import { formatCurrency, formatDate } from '../utils/format';
 import { lerOfx, decodificarOfx, ContaOfx } from '../utils/ofx';
-import { montarSugestoes, resumir, alvoConciliacao, LinhaImportacao, Acao, Confianca } from '../utils/ofxSugestao';
+import {
+  montarSugestoes, resumir, alvoConciliacao, lerDivisoes,
+  LinhaImportacao, Acao, Confianca, Divisao,
+} from '../utils/ofxSugestao';
 import { supabase } from '../supabaseClient';
 import SearchableSelect from './SearchableSelect';
 
@@ -69,11 +73,77 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
     () => leiloes.map(l => ({ id: l.id, nome: l.nome })),
     [leiloes]);
   const leilaoMap = useMemo(() => new Map(leiloes.map(l => [l.id, l])), [leiloes]);
+  const rubricaMap = useMemo(
+    () => new Map(categories.map(c => [c.id, `${c.codigo} - ${c.rubrica}`])),
+    [categories]);
+  const [expandidas, setExpandidas] = useState<Set<string>>(new Set());
 
   const limpar = () => {
     setEtapa('upload'); setErro(''); setNomeArquivo(''); setContas([]);
     setContaIdx(0); setBancoId(''); setLinhas([]); setBusca('');
     setFiltroAcao('todas'); setSalvando(false); setProgresso('');
+    setExpandidas(new Set());
+  };
+
+  // ---- repartição de um pagamento em várias rubricas ----
+
+  const somaDivisoes = (d: Divisao[]) => d.reduce((acc, i) => acc + (Number(i.valor) || 0), 0);
+
+  /** Uma linha só pode ser gravada se a divisão fecha o valor e tem rubrica. */
+  const divisaoValida = (l: LinhaImportacao) =>
+    l.divisoes.length === 0
+      ? !!l.categoria_id
+      : somaDivisoes(l.divisoes) === l.transacao.valor && l.divisoes.every(d => !!d.categoria_id);
+
+  const alternarExpansao = (chave: string) =>
+    setExpandidas(prev => {
+      const proximo = new Set(prev);
+      if (proximo.has(chave)) proximo.delete(chave); else proximo.add(chave);
+      return proximo;
+    });
+
+  /** Abre a repartição: começa com a rubrica atual levando o valor inteiro. */
+  const abrirDivisao = (l: LinhaImportacao) => {
+    if (l.divisoes.length === 0) {
+      alterarLinha(l.chave, {
+        divisoes: [
+          { id: crypto.randomUUID(), categoria_id: l.categoria_id, valor: l.transacao.valor, leilao_id: l.leilao_id, fornecedor: l.fornecedor },
+          { id: crypto.randomUUID(), categoria_id: '', valor: 0, leilao_id: l.leilao_id, fornecedor: l.fornecedor },
+        ],
+      });
+    }
+    setExpandidas(prev => new Set(prev).add(l.chave));
+  };
+
+  const mudarDivisao = (chave: string, id: string, campo: keyof Divisao, valor: string | number) =>
+    setLinhas(prev => prev.map(l => l.chave !== chave ? l : {
+      ...l,
+      divisoes: l.divisoes.map(d => d.id === id ? { ...d, [campo]: valor } : d),
+    }));
+
+  const acrescentarDivisao = (chave: string) =>
+    setLinhas(prev => prev.map(l => {
+      if (l.chave !== chave) return l;
+      const restante = Math.max(0, l.transacao.valor - somaDivisoes(l.divisoes));
+      return {
+        ...l,
+        divisoes: [...l.divisoes, { id: crypto.randomUUID(), categoria_id: '', valor: restante, leilao_id: l.leilao_id, fornecedor: l.fornecedor }],
+      };
+    }));
+
+  const removerDivisao = (chave: string, id: string) =>
+    setLinhas(prev => prev.map(l => l.chave !== chave ? l : {
+      ...l,
+      divisoes: l.divisoes.filter(d => d.id !== id),
+    }));
+
+  /** Desfaz a repartição e volta ao pagamento inteiro numa rubrica só. */
+  const desfazerDivisao = (l: LinhaImportacao) => {
+    alterarLinha(l.chave, {
+      divisoes: [],
+      categoria_id: l.divisoes[0]?.categoria_id || l.categoria_id,
+    });
+    setExpandidas(prev => { const p = new Set(prev); p.delete(l.chave); return p; });
   };
 
   const fechar = () => { limpar(); onClose(); };
@@ -155,7 +225,7 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
 
   const resumo = useMemo(() => resumir(linhas), [linhas]);
   const bloqueadas = useMemo(
-    () => linhas.filter(l => l.acao === 'criar' && !l.categoria_id).length,
+    () => linhas.filter(l => l.acao === 'criar' && !divisaoValida(l)).length,
     [linhas]);
 
   /**
@@ -204,7 +274,15 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
 
   const efetivar = async () => {
     if (bloqueadas > 0) {
-      setErro(`${bloqueadas} lançamento(s) ainda estão sem rubrica. Escolha a rubrica ou marque como ignorar.`);
+      const semRubrica = linhas.filter(l => l.acao === 'criar' && l.divisoes.length === 0 && !l.categoria_id).length;
+      const divisaoAberta = bloqueadas - semRubrica;
+      setErro(
+        [
+          semRubrica > 0 ? `${semRubrica} sem rubrica` : '',
+          divisaoAberta > 0 ? `${divisaoAberta} com a repartição sem fechar o valor` : '',
+        ].filter(Boolean).join(' e ')
+        + '. Ajuste as linhas ou marque como ignorar.',
+      );
       return;
     }
 
@@ -279,7 +357,15 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
             tipo: l.transacao.tipo === 'credito' ? 'receita' : 'despesa',
             status: statusNovo,
             conciliado: true,
-            categoria_id: l.categoria_id,
+            categoria_id: l.divisoes.length ? l.divisoes[0].categoria_id : l.categoria_id,
+            split_revenue: l.divisoes.length
+              ? l.divisoes.map(d => ({
+                  categoria_id: d.categoria_id,
+                  valor: Math.round(d.valor),
+                  leilao_id: d.leilao_id || null,
+                  fornecedor: d.fornecedor || '',
+                }))
+              : null,
             banco_id: bancoId,
             leilao_id: l.leilao_id || null,
             fornecedor: l.fornecedor || l.transacao.contraparte || 'NÃO IDENTIFICADO',
@@ -496,10 +582,25 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                               {l.transacao.documento && ` · ${l.transacao.documento}`}
                             </div>
                             {l.acao === 'conciliar' && l.existente && (
-                              <div className={`text-xs mt-0.5 flex items-center gap-1 ${l.ambiguo ? 'text-amber-700' : 'text-sky-700'}`}>
-                                <Link2 size={12} />
-                                {l.existente.descricao?.slice(0, 60) || 'lançamento existente'}
-                                {l.ambiguo && ' · mais de um candidato'}
+                              <div className={`text-xs mt-1 rounded px-1.5 py-1 border ${l.ambiguo ? 'text-amber-800 bg-amber-100/70 border-amber-200' : 'text-sky-800 bg-sky-100/60 border-sky-200'}`}>
+                                <span className="flex items-start gap-1">
+                                  <Link2 size={12} className="flex-shrink-0 mt-0.5" />
+                                  <span>
+                                    <strong>Já existe no sistema.</strong>{' '}
+                                    {formatDate(l.existente.data_pagamento)} ·{' '}
+                                    {l.existente.fornecedor || l.existente.descricao?.slice(0, 40) || 'sem fornecedor'}
+                                    {l.existente.categoria_id && !lerDivisoes(l.existente).length && (
+                                      <> · {rubricaMap.get(l.existente.categoria_id) || 'rubrica removida'}</>
+                                    )}
+                                    <br />
+                                    <span className="text-sky-900">
+                                      Conciliar mantém esse lançamento e só marca que bateu com o banco. Nada é criado.
+                                    </span>
+                                    {l.ambiguo && (
+                                      <><br /><span className="text-amber-900">Há mais de um lançamento com esse valor no dia — confira qual é antes de efetivar.</span></>
+                                    )}
+                                  </span>
+                                </span>
                               </div>
                             )}
                             {(l.alerta || l.duplicada) && l.acao !== 'conciliar' && (
@@ -529,8 +630,26 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                           <td className="px-3 py-2 align-top">
                             {l.acao === 'conciliar' ? (
                               <span className="text-xs text-slate-500">
-                                mantém a do lançamento existente
+                                mantém a rubrica do lançamento existente
                               </span>
+                            ) : l.divisoes.length > 0 ? (
+                              <button
+                                onClick={() => alternarExpansao(l.chave)}
+                                className={`w-full text-left text-xs border rounded px-2 py-1.5 transition-colors ${
+                                  divisaoValida(l)
+                                    ? 'border-slate-300 bg-white hover:bg-slate-50 text-slate-700'
+                                    : 'border-red-300 bg-red-50 text-red-800'}`}
+                              >
+                                <span className="flex items-center gap-1 font-semibold">
+                                  {expandidas.has(l.chave) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                                  <Split size={12} /> {l.divisoes.length} rubricas
+                                </span>
+                                <span className="block mt-0.5">
+                                  {divisaoValida(l)
+                                    ? l.divisoes.map(d => formatCurrency(d.valor)).join(' + ')
+                                    : `falta ${formatCurrency(l.transacao.valor - somaDivisoes(l.divisoes))} para fechar`}
+                                </span>
+                              </button>
                             ) : (
                               <div className="flex items-start gap-1">
                                 <div className="flex-1 min-w-0">
@@ -550,6 +669,13 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                                     <Sparkles size={14} />
                                   </button>
                                 )}
+                                <button
+                                  onClick={() => abrirDivisao(l)}
+                                  title="Repartir este pagamento em várias rubricas"
+                                  className="p-1.5 text-slate-400 hover:text-brand-700 hover:bg-slate-100 rounded"
+                                >
+                                  <Split size={14} />
+                                </button>
                               </div>
                             )}
                           </td>
@@ -572,7 +698,112 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                             <div className="text-xs text-slate-500 mt-0.5 leading-tight">{l.motivo}</div>
                           </td>
                         </tr>
-                      ))}
+                      )).flatMap((linhaTabela, idx) => {
+                        const l = visiveis[idx];
+                        const extras = [linhaTabela];
+
+                        // O que já está no sistema, com as divisões que alguém
+                        // da equipe já fez — é o que a conciliação preserva.
+                        const jaLancado = alvoConciliacao(l);
+                        const divisoesExistentes = lerDivisoes(jaLancado);
+                        if (jaLancado && (l.acao === 'conciliar' || l.alerta) && divisoesExistentes.length > 0) {
+                          extras.push(
+                            <tr key={`${l.chave}-existente`} className={l.acao === 'conciliar' ? 'bg-sky-50/40' : 'bg-amber-50'}>
+                              <td />
+                              <td colSpan={6} className="px-3 pb-2 pt-0">
+                                <div className="text-xs border border-slate-200 bg-white rounded p-2">
+                                  <span className="font-semibold text-slate-700">
+                                    O lançamento que já existe está repartido em {divisoesExistentes.length} rubricas:
+                                  </span>
+                                  <ul className="mt-1 space-y-0.5">
+                                    {divisoesExistentes.map(d => (
+                                      <li key={d.id} className="flex justify-between gap-4 text-slate-600">
+                                        <span>{rubricaMap.get(d.categoria_id) || 'rubrica removida'}</span>
+                                        <span className="font-semibold whitespace-nowrap">{formatCurrency(d.valor)}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                  <p className="mt-1 text-slate-500">
+                                    {l.acao === 'conciliar'
+                                      ? 'Conciliar mantém este lançamento e as divisões como estão — nada é criado.'
+                                      : 'Escolha "Conciliar" para manter este lançamento, ou "Criar" para gerar outro.'}
+                                  </p>
+                                </div>
+                              </td>
+                            </tr>,
+                          );
+                        }
+
+                        // Editor da repartição da linha do extrato.
+                        if (l.acao !== 'conciliar' && l.divisoes.length > 0 && expandidas.has(l.chave)) {
+                          const restante = l.transacao.valor - somaDivisoes(l.divisoes);
+                          extras.push(
+                            <tr key={`${l.chave}-divisao`} className="bg-slate-50">
+                              <td />
+                              <td colSpan={6} className="px-3 pb-3 pt-0">
+                                <div className="border border-slate-300 rounded-lg bg-white p-3">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <span className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+                                      <Split size={13} /> Repartir {formatCurrency(l.transacao.valor)} entre rubricas
+                                    </span>
+                                    <button onClick={() => desfazerDivisao(l)}
+                                            className="text-xs text-slate-500 hover:text-red-600 underline">
+                                      usar uma rubrica só
+                                    </button>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    {l.divisoes.map(d => (
+                                      <div key={d.id} className="grid grid-cols-[1fr_180px_120px_32px] gap-2 items-center">
+                                        <SearchableSelect
+                                          options={opcoesRubrica}
+                                          value={d.categoria_id || null}
+                                          onChange={id => mudarDivisao(l.chave, d.id, 'categoria_id', id ?? '')}
+                                          placeholder="Escolher rubrica..."
+                                        />
+                                        <SearchableSelect
+                                          options={opcoesLeilao}
+                                          value={d.leilao_id || null}
+                                          onChange={id => mudarDivisao(l.chave, d.id, 'leilao_id', id ?? '')}
+                                          placeholder="Sem leilão"
+                                        />
+                                        <input
+                                          type="number" step="0.01" min="0"
+                                          value={d.valor / 100}
+                                          onChange={e => mudarDivisao(l.chave, d.id, 'valor', Math.round((parseFloat(e.target.value) || 0) * 100))}
+                                          className="border border-slate-300 rounded-lg p-2 text-sm text-right font-semibold"
+                                        />
+                                        <button onClick={() => removerDivisao(l.chave, d.id)}
+                                                disabled={l.divisoes.length <= 2}
+                                                title={l.divisoes.length <= 2 ? 'Uma repartição precisa de ao menos duas rubricas' : 'Remover'}
+                                                className="p-1.5 text-slate-400 hover:text-red-600 disabled:opacity-30 disabled:hover:text-slate-400">
+                                          <Trash2 size={14} />
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+
+                                  <div className="flex items-center justify-between mt-3 pt-2 border-t border-slate-200">
+                                    <button onClick={() => acrescentarDivisao(l.chave)}
+                                            className="text-xs flex items-center gap-1 text-brand-700 font-semibold hover:underline">
+                                      <Plus size={13} /> Acrescentar rubrica
+                                    </button>
+                                    <span className={`text-xs font-semibold ${restante === 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                                      {restante === 0
+                                        ? `fecha em ${formatCurrency(l.transacao.valor)}`
+                                        : restante > 0
+                                          ? `faltam ${formatCurrency(restante)}`
+                                          : `passou ${formatCurrency(-restante)}`}
+                                    </span>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>,
+                          );
+                        }
+
+                        return extras;
+                      })}
                       {visiveis.length === 0 && (
                         <tr><td colSpan={7} className="px-3 py-10 text-center text-slate-400">Nenhuma linha com esse filtro.</td></tr>
                       )}
