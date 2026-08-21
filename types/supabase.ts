@@ -136,6 +136,8 @@ export type Database = {
           id: string
           leilao_id: string | null
           motivo_rejeicao: string | null
+          ofx_fitid: string | null
+          ofx_memo: string | null
           split_revenue: Json | null
           status: string
           tipo: string
@@ -157,6 +159,8 @@ export type Database = {
           id?: string
           leilao_id?: string | null
           motivo_rejeicao?: string | null
+          ofx_fitid?: string | null
+          ofx_memo?: string | null
           split_revenue?: Json | null
           status: string
           tipo: string
@@ -178,6 +182,8 @@ export type Database = {
           id?: string
           leilao_id?: string | null
           motivo_rejeicao?: string | null
+          ofx_fitid?: string | null
+          ofx_memo?: string | null
           split_revenue?: Json | null
           status?: string
           tipo?: string
