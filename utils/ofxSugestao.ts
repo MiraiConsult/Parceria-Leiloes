@@ -7,10 +7,18 @@
 // Nada aqui grava: o motor só propõe. Quem decide é quem revisa a tela.
 
 import { Lancamento, Categoria, Leilao } from '../types';
+import { formatDate as formatarData } from './format';
 import { TransacaoOfx, normalizarNome } from './ofx';
 
 export type Acao = 'conciliar' | 'criar' | 'ignorar';
 export type Confianca = 'alta' | 'media' | 'baixa' | 'nenhuma';
+
+/** O que faz suspeitar que a linha já está lançada, mesmo sem casar direto. */
+export interface Alerta {
+  lancamento: Lancamento;
+  texto: string;
+  forte: boolean;             // mesmo pagador, além do mesmo valor
+}
 
 export interface LinhaImportacao {
   chave: string;              // fitid, ou data+valor+índice quando o banco omite
@@ -19,6 +27,7 @@ export interface LinhaImportacao {
   duplicada: boolean;         // já importada antes (mesmo FITID no banco)
   existente: Lancamento | null;
   ambiguo: boolean;           // mais de um lançamento candidato à conciliação
+  alerta: Alerta | null;      // parece já lançado, mas não o bastante para conciliar
   categoria_id: string;
   leilao_id: string;
   fornecedor: string;
@@ -28,7 +37,13 @@ export interface LinhaImportacao {
   motivo: string;
 }
 
+// Casamento seguro: mesma data, ou quase — o banco às vezes credita no dia
+// seguinte ao que a equipe lançou.
 const TOLERANCIA_DIAS = 3;
+// Fora dessa folga ainda dá para desconfiar, sem afirmar. Duas janelas: uma
+// para "mesmo valor" e outra, mais larga, para "mesmo valor e mesmo pagador".
+const ALERTA_DIAS = 15;
+const ALERTA_DIAS_MESMO_PAGADOR = 45;
 
 const diasEntre = (a: string, b: string): number =>
   Math.round(Math.abs(Date.parse(a + 'T12:00:00') - Date.parse(b + 'T12:00:00')) / 86400000);
@@ -259,6 +274,34 @@ export const montarSugestoes = ({
 
     const duplicada = !!t.fitid && idx.fitidsUsados.has(t.fitid);
 
+    // Não casou dentro da folga, mas existe algo parecido demais para criar
+    // sem avisar: mesmo valor e mesmo sentido, perto da data. Se o pagador
+    // também bate, a janela é maior e o alerta é mais firme.
+    let alerta: Alerta | null = null;
+    if (!existente && !duplicada) {
+      const parecidos = (candidatosPorValor.get(t.valor) ?? [])
+        .filter(l => l.tipo === tipo && !jaTomados.has(l.id))
+        .map(l => ({ l, dias: diasEntre(l.data_pagamento, t.data) }))
+        .filter(({ l, dias }) => {
+          const mesmoPagador = !!t.contraparte
+            && normalizarNome(l.fornecedor || '') === t.contraparte;
+          return dias <= (mesmoPagador ? ALERTA_DIAS_MESMO_PAGADOR : ALERTA_DIAS);
+        })
+        .sort((a, b) => a.dias - b.dias);
+
+      if (parecidos.length) {
+        const { l, dias } = parecidos[0];
+        const forte = !!t.contraparte && normalizarNome(l.fornecedor || '') === t.contraparte;
+        alerta = {
+          lancamento: l,
+          forte,
+          texto: `já existe um lançamento de ${formatarData(l.data_pagamento)}`
+            + ` com o mesmo valor${forte ? ` e o mesmo pagador` : ''}`
+            + ` (${dias} dia${dias === 1 ? '' : 's'} de diferença)`,
+        };
+      }
+    }
+
     let categoria_id = existente?.categoria_id ?? '';
     let leilao_id = existente?.leilao_id ?? '';
     let fornecedor = existente?.fornecedor ?? t.contraparte;
@@ -288,23 +331,28 @@ export const montarSugestoes = ({
       if (!leilao_id) leilao_id = leilaoPorData(t.data, leiloes);
     }
 
+    // Quem parece já estar lançado não entra como criação por descuido: a
+    // linha nasce em "ignorar", com o aviso à vista, e quem revisa decide.
+    const acao: Acao = duplicada || alerta ? 'ignorar' : existente ? 'conciliar' : 'criar';
+
     linhas[i] = {
       chave: t.fitid || `${t.data}-${t.valor}-${i}`,
       transacao: t,
-      acao: duplicada ? 'ignorar' : 'criar',
+      acao,
       duplicada,
       existente,
       ambiguo: mesmaData.length > 1,
+      alerta,
       categoria_id,
       leilao_id,
       fornecedor,
       descricao: t.memo,
       data_competencia: t.data,
       confianca,
-      motivo: duplicada ? 'já importada de um extrato anterior' : motivo,
+      motivo: duplicada
+        ? 'já importada de um extrato anterior'
+        : alerta ? alerta.texto : motivo,
     };
-
-    if (existente && !duplicada) linhas[i].acao = 'conciliar';
   });
 
   return linhas;
@@ -318,4 +366,12 @@ export const resumir = (linhas: LinhaImportacao[]) => ({
   ignorar: linhas.filter(l => l.acao === 'ignorar').length,
   semRubrica: linhas.filter(l => l.acao === 'criar' && !l.categoria_id).length,
   duplicadas: linhas.filter(l => l.duplicada).length,
+  jaLancados: linhas.filter(l => l.alerta || l.duplicada).length,
+  // Avisadas de que já existem e ainda assim marcadas para criar: é o que a
+  // tela precisa confirmar antes de gravar.
+  criarMesmoAvisado: linhas.filter(l => l.acao === 'criar' && (l.alerta || l.duplicada)).length,
 });
+
+/** O lançamento com que a linha pode ser conciliada, tenha casado ou só se parecido. */
+export const alvoConciliacao = (l: LinhaImportacao): Lancamento | null =>
+  l.existente ?? l.alerta?.lancamento ?? null;
