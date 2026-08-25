@@ -1,10 +1,9 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Lancamento, User, Banco, Categoria, Leilao, Unidade, UnvalidatedTransaction, TransactionFilters } from '../types';
 import { formatCurrency, formatDate, parseDate } from '../utils/format';
-import { Check, X, Search, Filter, FileInput, Plus, Pencil, Trash2, Loader, ArrowUp, ArrowDown, ArrowUpDown, GripVertical, Printer, Clock, Landmark } from 'lucide-react';
+import { Check, X, Search, Filter, FileInput, Plus, Pencil, Trash2, Loader, ArrowUp, ArrowDown, ArrowUpDown, GripVertical, Printer, Clock } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { ImportModal } from './ImportModal';
-import OfxImportModal from './OfxImportModal';
 import { generateLancamentosTemplate } from '../utils/importExport';
 import ValidationView from './Validation';
 import MultiSelectFilter from './MultiSelectFilter';
@@ -37,7 +36,6 @@ const Transactions: React.FC<TransactionsProps> = ({
 }) => {
   const [loading, setLoading] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [isOfxModalOpen, setIsOfxModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'all' | 'validation'>('all');
   const [sortConfig, setSortConfig] = useState<{ key: SortKey, direction: SortDirection }>({ key: 'data_pagamento', direction: 'desc' });
   const leilaoMap = useMemo(() => new Map(leiloes.map(l => [l.id, l.nome])), [leiloes]);
@@ -387,9 +385,6 @@ const Transactions: React.FC<TransactionsProps> = ({
            <button onClick={() => setIsImportModalOpen(true)} className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-50 text-sm font-medium transition-colors">
               <FileInput size={16} /> Importar Lançamentos
            </button>
-           <button onClick={() => setIsOfxModalOpen(true)} className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-50 text-sm font-medium transition-colors">
-              <Landmark size={16} /> Importar Extrato (OFX)
-           </button>
            <button onClick={() => handleOpenModal()} className="flex items-center gap-2 bg-brand-800 text-white px-4 py-2 rounded-lg hover:bg-brand-900 text-sm font-medium transition-colors shadow-sm">
               <Plus size={16} /> Novo Lançamento
            </button>
@@ -694,29 +689,6 @@ const Transactions: React.FC<TransactionsProps> = ({
         generateTemplate={generateLancamentosTemplate}
         title="Importar Lançamentos"
         templateName="modelo_lancamentos.xlsx"
-      />
-
-      <OfxImportModal
-        isOpen={isOfxModalOpen}
-        onClose={() => setIsOfxModalOpen(false)}
-        transactions={transactions}
-        bancos={bancos}
-        categories={categories}
-        leiloes={leiloes}
-        user={user}
-        onImported={(criados, conciliados, aprovados) => {
-          const conciliadosSet = new Set(conciliados);
-          const aprovadosSet = new Set(aprovados);
-          setTransactions(prev => [
-            ...criados,
-            ...prev.map(t => {
-              if (!conciliadosSet.has(t.id)) return t;
-              return aprovadosSet.has(t.id)
-                ? { ...t, conciliado: true, status: 'aprovado' as const, approved_by: user.id }
-                : { ...t, conciliado: true };
-            }),
-          ]);
-        }}
       />
     </div>
   );

@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Lancamento, Banco, Categoria, User, Unidade, Leilao } from '../types';
 import { formatCurrency, formatDate, parseDate } from '../utils/format';
-import { Landmark, TrendingUp, CheckCircle2, Loader, Pencil, Trash2, CheckSquare, XSquare, Plus, GripVertical, Search, Download } from 'lucide-react';
+import { Landmark, TrendingUp, CheckCircle2, Loader, Pencil, Trash2, CheckSquare, XSquare, Plus, GripVertical, Search, Download, FileInput } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import MultiSelectFilter from './MultiSelectFilter';
+import OfxImportModal from './OfxImportModal';
 import DatePickerInput from './DatePickerInput';
 import * as XLSX from 'xlsx';
 
@@ -30,13 +31,14 @@ interface ReconciliationProps {
 }
 
 const Reconciliation: React.FC<ReconciliationProps> = ({ 
-  transactions, setTransactions, transactionsLoading, bancos, unidades, leiloes, categories,
+  transactions, setTransactions, user, transactionsLoading, bancos, unidades, leiloes, categories,
   selectedBankIds, setSelectedBankIds, selectedUnidades, setSelectedUnidades,
   leilaoFilter, setLeilaoFilter, rubricaFilter, setRubricaFilter,
   dateFilter, setDateFilter,
   handleOpenModal 
 }) => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isOfxModalOpen, setIsOfxModalOpen] = useState(false);
   const [loadingActions, setLoadingActions] = useState<Set<string>>(new Set());
 
   const leilaoMap = useMemo(() => new Map(leiloes.map(l => [l.id, l.nome])), [leiloes]);
@@ -372,6 +374,9 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
           <button onClick={handleExportXlsx} className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-50 text-sm font-medium transition-colors shadow-sm">
             <Download size={16} /> Exportar Excel
           </button>
+          <button onClick={() => setIsOfxModalOpen(true)} className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-50 text-sm font-medium transition-colors shadow-sm">
+            <FileInput size={16} /> Importar Extrato (OFX)
+          </button>
           <button onClick={() => handleOpenModal()} className="flex items-center gap-2 bg-brand-800 text-white px-4 py-2 rounded-lg hover:bg-brand-900 text-sm font-medium transition-colors shadow-sm">
             <Plus size={16} /> Novo Lançamento
           </button>
@@ -468,6 +473,29 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
               </div>
           </div>
       )}
+
+      <OfxImportModal
+        isOpen={isOfxModalOpen}
+        onClose={() => setIsOfxModalOpen(false)}
+        transactions={transactions}
+        bancos={bancos}
+        categories={categories}
+        leiloes={leiloes}
+        user={user}
+        onImported={(criados, conciliados, aprovados) => {
+          const conciliadosSet = new Set(conciliados);
+          const aprovadosSet = new Set(aprovados);
+          setTransactions(prev => [
+            ...criados,
+            ...prev.map(t => {
+              if (!conciliadosSet.has(t.id)) return t;
+              return aprovadosSet.has(t.id)
+                ? { ...t, conciliado: true, status: 'aprovado' as const, approved_by: user.id }
+                : { ...t, conciliado: true };
+            }),
+          ]);
+        }}
+      />
     </div>
   );
 };
