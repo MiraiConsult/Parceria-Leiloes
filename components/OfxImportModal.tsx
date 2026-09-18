@@ -10,6 +10,7 @@ import { lerOfx, decodificarOfx, ContaOfx } from '../utils/ofx';
 import {
   montarSugestoes, resumir, alvoConciliacao, lerDivisoes,
   LinhaImportacao, Acao, Confianca, Divisao,
+  rubricaTemLeilao,
 } from '../utils/ofxSugestao';
 import { supabase } from '../supabaseClient';
 import SearchableSelect from './SearchableSelect';
@@ -78,6 +79,11 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
     () => new Map(categories.map(c => [c.id, `${c.codigo} - ${c.rubrica}`])),
     [categories]);
   const [expandidas, setExpandidas] = useState<Set<string>>(new Set());
+  const codigoRubrica = useMemo(() => new Map(categories.map(c => [c.id, c.codigo])), [categories]);
+  /** Só rubricas 10, 20, 21, 22 e 50 são de evento; as demais não levam leilão. */
+  const aceitaLeilao = (categoriaId: string) => rubricaTemLeilao(codigoRubrica.get(categoriaId));
+  /** A rubrica que vai gravada na linha: a primeira fatia, quando repartida. */
+  const rubricaDaLinha = (l: LinhaImportacao) => l.divisoes.length ? l.divisoes[0].categoria_id : l.categoria_id;
 
   const limpar = () => {
     setEtapa('upload'); setErro(''); setNomeArquivo(''); setContas([]);
@@ -117,9 +123,15 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
   };
 
   const mudarDivisao = (chave: string, id: string, campo: keyof Divisao, valor: string | number) =>
-    setLinhas(prev => prev.map(l => l.chave !== chave ? l : {
-      ...l,
-      divisoes: l.divisoes.map(d => d.id === id ? { ...d, [campo]: valor } : d),
+    setLinhas(prev => prev.map(l => {
+      if (l.chave !== chave) return l;
+      const divisoes = l.divisoes.map(d => {
+        if (d.id !== id) return d;
+        const nova = { ...d, [campo]: valor };
+        return campo === 'categoria_id' && !aceitaLeilao(String(valor)) ? { ...nova, leilao_id: '' } : nova;
+      });
+      // A primeira fatia define a rubrica da linha — e com ela, se cabe leilão.
+      return { ...l, divisoes, leilao_id: aceitaLeilao(divisoes[0]?.categoria_id ?? '') ? l.leilao_id : '' };
     }));
 
   const acrescentarDivisao = (chave: string) =>
@@ -206,7 +218,13 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
     if (!alvo || !linha.categoria_id) return;
     setLinhas(prev => prev.map(l =>
       l.acao === 'criar' && l.transacao.contraparte === alvo
-        ? { ...l, categoria_id: linha.categoria_id, motivo: 'aplicada em lote pelo pagador', confianca: 'alta' }
+        ? {
+            ...l,
+            categoria_id: linha.categoria_id,
+            leilao_id: aceitaLeilao(linha.categoria_id) ? l.leilao_id : '',
+            motivo: 'aplicada em lote pelo pagador',
+            confianca: 'alta',
+          }
         : l));
   };
 
@@ -290,7 +308,7 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
       return;
     }
 
-    const avisadas = linhas.filter(l => l.acao === 'criar' && (l.alerta || l.duplicada));
+    const avisadas = linhas.filter(l => l.acao === 'criar' && (l.alerta?.forte || l.duplicada));
     if (avisadas.length && !window.confirm(
       `${avisadas.length} lançamento(s) marcados para criar já aparecem no sistema.\n\n` +
       `Criar mesmo assim vai gerar valores repetidos no DRE e no fluxo de caixa.\n\n` +
@@ -352,7 +370,7 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
       for (let i = 0; i < aCriar.length; i += blocos) {
         setProgresso(`Criando lançamentos ${i + 1}–${Math.min(i + blocos, aCriar.length)} de ${aCriar.length}...`);
         const lote = aCriar.slice(i, i + blocos).map(l => {
-          const leilao = l.leilao_id ? leilaoMap.get(l.leilao_id) : undefined;
+          const leilao = l.leilao_id && aceitaLeilao(rubricaDaLinha(l)) ? leilaoMap.get(l.leilao_id) : undefined;
           return {
             data_pagamento: l.transacao.data,
             data_competencia: l.data_competencia || l.transacao.data,
@@ -366,12 +384,12 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
               ? l.divisoes.map(d => ({
                   categoria_id: d.categoria_id,
                   valor: Math.round(d.valor),
-                  leilao_id: d.leilao_id || null,
+                  leilao_id: (aceitaLeilao(d.categoria_id) && d.leilao_id) || null,
                   fornecedor: d.fornecedor || '',
                 }))
               : null,
             banco_id: bancoId,
-            leilao_id: l.leilao_id || null,
+            leilao_id: (aceitaLeilao(rubricaDaLinha(l)) && l.leilao_id) || null,
             fornecedor: l.fornecedor || l.transacao.contraparte || 'NÃO IDENTIFICADO',
             unidade_id: leilao?.unidade_id || null,
             created_by: user.id,
@@ -646,7 +664,7 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                               <div className="text-xs mt-1 flex items-start gap-1 text-amber-800 bg-amber-100/70 border border-amber-200 rounded px-1.5 py-1">
                                 <TriangleAlert size={12} className="flex-shrink-0 mt-0.5" />
                                 <span>
-                                  <strong>Já lançado.</strong>{' '}
+                                  <strong>{l.duplicada || l.alerta?.forte ? 'Já lançado.' : 'Mesmo valor no mês.'}</strong>{' '}
                                   {l.duplicada
                                     ? 'esta transação veio de um extrato já importado'
                                     : l.alerta?.texto}
@@ -658,7 +676,9 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                                       </span>
                                     </>
                                   )}
-                                  {l.acao === 'criar' && ' · marcada para criar mesmo assim'}
+                                  {l.acao === 'criar' && (l.duplicada || l.alerta?.forte
+                                    ? ' · marcada para criar mesmo assim'
+                                    : ' · pagador diferente, vai ser criado — mude para Conciliar se for o mesmo')}
                                 </span>
                               </div>
                             )}
@@ -695,7 +715,12 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                                   <SearchableSelect
                                     options={opcoesRubrica}
                                     value={l.categoria_id || null}
-                                    onChange={id => alterarLinha(l.chave, { categoria_id: id ?? '', motivo: 'escolhida manualmente', confianca: 'alta' })}
+                                    onChange={id => alterarLinha(l.chave, {
+                                      categoria_id: id ?? '',
+                                      ...(aceitaLeilao(id ?? '') ? {} : { leilao_id: '' }),
+                                      motivo: 'escolhida manualmente',
+                                      confianca: 'alta',
+                                    })}
                                     placeholder="Escolher rubrica..."
                                   />
                                 </div>
@@ -721,6 +746,10 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                           <td className="px-3 py-2 align-top">
                             {l.acao === 'conciliar' ? (
                               <span className="text-xs text-slate-400">—</span>
+                            ) : rubricaDaLinha(l) && !aceitaLeilao(rubricaDaLinha(l)) ? (
+                              <span className="text-xs text-slate-400" title="Só rubricas 10, 20, 21, 22 e 50 são de leilão">
+                                não se aplica a esta rubrica
+                              </span>
                             ) : (
                               <SearchableSelect
                                 options={opcoesLeilao}
@@ -802,12 +831,16 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                                           onChange={id => mudarDivisao(l.chave, d.id, 'categoria_id', id ?? '')}
                                           placeholder="Escolher rubrica..."
                                         />
-                                        <SearchableSelect
-                                          options={opcoesLeilao}
-                                          value={d.leilao_id || null}
-                                          onChange={id => mudarDivisao(l.chave, d.id, 'leilao_id', id ?? '')}
-                                          placeholder="Sem leilão"
-                                        />
+                                        {d.categoria_id && !aceitaLeilao(d.categoria_id) ? (
+                                          <span className="text-xs text-slate-400 px-2">sem leilão nesta rubrica</span>
+                                        ) : (
+                                          <SearchableSelect
+                                            options={opcoesLeilao}
+                                            value={d.leilao_id || null}
+                                            onChange={id => mudarDivisao(l.chave, d.id, 'leilao_id', id ?? '')}
+                                            placeholder="Sem leilão"
+                                          />
+                                        )}
                                         <input
                                           type="number" step="0.01" min="0"
                                           value={d.valor / 100}

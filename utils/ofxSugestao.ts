@@ -73,6 +73,20 @@ const TOLERANCIA_DIAS = 3;
 const ALERTA_DIAS = 15;
 const ALERTA_DIAS_MESMO_PAGADOR = 45;
 
+/**
+ * Só estas famílias de rubrica pertencem a um leilão: receitas (10), custos
+ * do evento (20, 21, 22) e repasses de terceiros (50). Imposto, folha,
+ * escritório e o resto são da empresa, não do evento — no histórico, menos de
+ * 1% desses lançamentos tem leilão, e quando tem é engano.
+ */
+const PREFIXOS_COM_LEILAO = ['10', '20', '21', '22', '50'];
+
+export const rubricaTemLeilao = (codigo: string | undefined | null): boolean =>
+  !!codigo && PREFIXOS_COM_LEILAO.some(p => codigo.trim().startsWith(p));
+
+/** Mesmo mês de calendário — datas vêm como AAAA-MM-DD. */
+const mesmoMes = (a: string, b: string): boolean => !!a && !!b && a.slice(0, 7) === b.slice(0, 7);
+
 const diasEntre = (a: string, b: string): number =>
   Math.round(Math.abs(Date.parse(a + 'T12:00:00') - Date.parse(b + 'T12:00:00')) / 86400000);
 
@@ -294,6 +308,8 @@ export const montarSugestoes = ({
 
   const jaTomados = new Set<string>();
   const categoriasValidas = new Set(categorias.map(c => c.id));
+  const codigoPorId = new Map(categorias.map(c => [c.id, c.codigo]));
+  const aceitaLeilao = (categoriaId: string) => rubricaTemLeilao(codigoPorId.get(categoriaId));
 
   // Data exata primeiro: assim uma linha que casa no dia não perde o
   // lançamento para outra que casaria só pela tolerância de 3 dias.
@@ -319,10 +335,13 @@ export const montarSugestoes = ({
     // Não casou dentro da folga, mas existe algo parecido demais para criar
     // sem avisar: mesmo valor e mesmo sentido, perto da data. Se o pagador
     // também bate, a janela é maior e o alerta é mais firme.
+    // Só dentro do mesmo mês: mensalidade, diária e comissão repetem o mesmo
+    // valor todo mês, e o lançamento do mês passado não é este — tratar como
+    // "já lançado" deixava o movimento novo de fora.
     let alerta: Alerta | null = null;
     if (!existente && !duplicada) {
       const parecidos = (candidatosPorValor.get(t.valor) ?? [])
-        .filter(l => l.tipo === tipo && !jaTomados.has(l.id))
+        .filter(l => l.tipo === tipo && !jaTomados.has(l.id) && mesmoMes(l.data_pagamento, t.data))
         .map(l => ({ l, dias: diasEntre(l.data_pagamento, t.data) }))
         .filter(({ l, dias }) =>
           dias <= (mesmoPagador(l.fornecedor, t.contraparte) ? ALERTA_DIAS_MESMO_PAGADOR : ALERTA_DIAS))
@@ -391,14 +410,21 @@ export const montarSugestoes = ({
       if (!leilao_id) leilao_id = leilaoPorData(t.data, leiloes);
     }
 
-    // Quem parece já estar lançado não entra como criação por descuido.
-    // Mesmo valor e mesmo pagador: quase certamente é o mesmo movimento
-    // lançado com outra data, então já nasce em "conciliar" — o aviso fica à
-    // vista para quem revisa discordar. Só o valor batendo é indício fraco
-    // demais para mexer em lançamento alheio: nasce em "ignorar".
+    // Rubrica fora das famílias de evento não leva leilão, nem sugerido pelo
+    // histórico nem pela data mais próxima.
+    if (!existente) {
+      if (!aceitaLeilao(categoria_id)) leilao_id = '';
+      divisoes = divisoes.map(d => aceitaLeilao(d.categoria_id) ? d : { ...d, leilao_id: '' });
+    }
+
+    // Mesmo valor e mesmo pagador no mês: quase certamente é o mesmo
+    // movimento lançado com outra data, então já nasce em "conciliar" — o
+    // aviso fica à vista para quem revisa discordar. Só o valor batendo, com
+    // outro pagador, é indício fraco: nasce em "criar" com o aviso ao lado,
+    // porque ignorar por engano tira o movimento do DRE sem ninguém ver.
     const acao: Acao = duplicada ? 'ignorar'
       : existente ? 'conciliar'
-        : alerta ? (alerta.forte ? 'conciliar' : 'ignorar')
+        : alerta?.forte ? 'conciliar'
           : 'criar';
 
     linhas[i] = {
@@ -435,8 +461,9 @@ export const resumir = (linhas: LinhaImportacao[]) => ({
   duplicadas: linhas.filter(l => l.duplicada).length,
   jaLancados: linhas.filter(l => l.alerta || l.duplicada).length,
   // Avisadas de que já existem e ainda assim marcadas para criar: é o que a
-  // tela precisa confirmar antes de gravar.
-  criarMesmoAvisado: linhas.filter(l => l.acao === 'criar' && (l.alerta || l.duplicada)).length,
+  // tela precisa confirmar antes de gravar. O alerta fraco (só o valor bate,
+  // pagador diferente) nasce em "criar" de propósito e não pede confirmação.
+  criarMesmoAvisado: linhas.filter(l => l.acao === 'criar' && (l.alerta?.forte || l.duplicada)).length,
 });
 
 /** O lançamento com que a linha pode ser conciliada, tenha casado ou só se parecido. */
