@@ -255,7 +255,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         const dataToUpdate = {
             ...formData,
             valor: Math.round((formData.valor || 0) * 100),
-            conciliado: formData.status === 'aprovado',
+            // Conciliado é prova de extrato, não consequência da aprovação:
+            // editar a rubrica de um lançamento importado não pode desfazer o
+            // que já bateu com o banco.
+            conciliado: formData.status === 'aprovado' || !!transaction?.conciliado,
+            // Quem abriu e salvou já conferiu a rubrica.
+            ...(transaction?.ofx_revisar ? { ofx_revisar: false } : {}),
             categoria_id: isSplit && splitItems.length > 0 ? splitItems[0].categoria_id : formData.categoria_id,
             split_revenue: isSplit ? splitItems.map(i => ({ categoria_id: i.categoria_id, valor: Math.round(i.valor), leilao_id: i.leilao_id || null, fornecedor: i.fornecedor || '' })) : null,
             leilao_id: formData.leilao_id || null,
@@ -387,6 +392,26 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[95vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="p-5 border-b border-slate-100 flex justify-between items-center"><h3 className="font-bold text-lg text-slate-800">{isEditing ? 'Editar' : 'Novo'} Lançamento</h3><button onClick={onClose} className="p-1.5 hover:bg-slate-200 rounded-full text-slate-500"><X size={20} /></button></div>
+
+        {isEditing && (transaction?.ofx_importado_em || transaction?.ofx_memo) && (
+          <div className="mx-6 mt-4 text-sm bg-sky-50 border border-sky-200 text-sky-900 rounded-lg px-3 py-2">
+            <strong>Veio do extrato.</strong>{' '}
+            {transaction?.ofx_arquivo ? `${transaction.ofx_arquivo} · ` : ''}
+            {transaction?.ofx_importado_em
+              ? `importado em ${new Date(transaction.ofx_importado_em).toLocaleDateString('pt-BR')}`
+              : 'importação anterior'}
+            {transaction?.conciliado && ' · já conciliado com o banco'}
+            {transaction?.status === 'pendente' && ' · falta aprovar'}
+            {transaction?.ofx_memo && (
+              <div className="text-xs text-sky-800/80 mt-0.5">Texto do banco: {transaction.ofx_memo}</div>
+            )}
+            {transaction?.ofx_revisar && (
+              <div className="text-xs text-amber-900 bg-amber-100 border border-amber-200 rounded px-2 py-1 mt-1">
+                A rubrica foi deduzida{transaction.ofx_motivo ? ` (${transaction.ofx_motivo})` : ''} — confira e reparta se precisar.
+              </div>
+            )}
+          </div>
+        )}
         
         <div className="flex-1 p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 overflow-y-auto">
           {/* Tipo de Lançamento */}

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Lancamento, User, Banco, Categoria, Leilao, Unidade, UnvalidatedTransaction, TransactionFilters } from '../types';
 import { formatCurrency, formatDate, parseDate } from '../utils/format';
-import { Check, X, Search, Filter, FileInput, Plus, Pencil, Trash2, Loader, ArrowUp, ArrowDown, ArrowUpDown, GripVertical, Printer, Clock } from 'lucide-react';
+import { Check, X, Search, Filter, FileInput, Plus, Pencil, Trash2, Loader, ArrowUp, ArrowDown, ArrowUpDown, GripVertical, Printer, Clock, FileDown, Link2 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { ImportModal } from './ImportModal';
 import { generateLancamentosTemplate } from '../utils/importExport';
@@ -41,6 +41,26 @@ const Transactions: React.FC<TransactionsProps> = ({
   const leilaoMap = useMemo(() => new Map(leiloes.map(l => [l.id, l.nome])), [leiloes]);
   const categoryMap = useMemo(() => new Map(categories.map(c => [c.id, c.rubrica])), [categories]);
   const categoryOptions = useMemo(() => categories.map(c => ({ id: c.id, nome: c.rubrica })), [categories]);
+
+  /** Veio de extrato? O carimbo do lote é o sinal; o memo cobre importação antiga. */
+  const veioDoExtrato = (t: Lancamento) => !!(t.ofx_importado_em || t.ofx_memo || t.ofx_fitid);
+
+  /** Cada importação vira uma opção de filtro: arquivo e hora em que subiu. */
+  const lotes = useMemo(() => {
+    const mapa = new Map<string, { chave: string; rotulo: string; n: number }>();
+    transactions.forEach(t => {
+      if (!t.ofx_importado_em) return;
+      const atual = mapa.get(t.ofx_importado_em);
+      if (atual) { atual.n++; return; }
+      const quando = new Date(t.ofx_importado_em);
+      mapa.set(t.ofx_importado_em, {
+        chave: t.ofx_importado_em,
+        rotulo: `${t.ofx_arquivo || 'extrato'} · ${quando.toLocaleDateString('pt-BR')} ${quando.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`,
+        n: 1,
+      });
+    });
+    return [...mapa.values()].sort((a, b) => b.chave.localeCompare(a.chave));
+  }, [transactions]);
   const unidadeMap = useMemo(() => new Map(unidades.map(u => [u.id, u.nome])), [unidades]);
 
   // State for drag-and-drop reordering
@@ -240,7 +260,17 @@ const Transactions: React.FC<TransactionsProps> = ({
       const matchesUnidade = filters.unidadeFilter.size === 0 || (t.unidade_id ? filters.unidadeFilter.has(t.unidade_id) : false);
       const matchesRubrica = filters.rubricaFilter.size === 0 || (t.categoria_id ? filters.rubricaFilter.has(t.categoria_id) : false);
 
-      return matchesText && matchesStatus && matchesDate && matchesLeilao && matchesUnidade && matchesRubrica;
+      const doExtrato = veioDoExtrato(t);
+      const matchesOrigem = filters.origemFilter === 'extrato' ? doExtrato
+        : filters.origemFilter === 'manual' ? !doExtrato
+          : true;
+      const matchesLote = !filters.loteFilter || filters.loteFilter === 'all'
+        || t.ofx_importado_em === filters.loteFilter;
+      // Fila de conferência: subiu de extrato e ninguém aprovou ainda.
+      const matchesConferir = !filters.paraConferir || (doExtrato && t.status === 'pendente');
+
+      return matchesText && matchesStatus && matchesDate && matchesLeilao && matchesUnidade && matchesRubrica
+        && matchesOrigem && matchesLote && matchesConferir;
     });
 
     if (sortConfig.key === 'manual') {
@@ -461,6 +491,53 @@ const Transactions: React.FC<TransactionsProps> = ({
                         />
                     </div>
                 </div>
+                <div className="flex flex-col md:flex-row gap-4 items-center flex-wrap border-t border-slate-100 pt-4">
+                    <div className="flex items-center gap-2 w-full md:w-auto">
+                        <label className="text-sm font-medium text-slate-500 shrink-0">Origem:</label>
+                        <select
+                          className="border border-slate-200 rounded-lg py-2 px-3 outline-none focus:ring-2 focus:ring-brand-500 bg-white"
+                          value={localFilters.origemFilter}
+                          onChange={(e) => updateLocalFilter('origemFilter', e.target.value as TransactionFilters['origemFilter'])}
+                        >
+                            <option value="all">Todas as origens</option>
+                            <option value="extrato">Importados do extrato</option>
+                            <option value="manual">Lançados à mão</option>
+                        </select>
+                    </div>
+                    {lotes.length > 0 && (
+                      <div className="flex items-center gap-2 w-full md:w-auto">
+                          <label className="text-sm font-medium text-slate-500 shrink-0">Importação:</label>
+                          <select
+                            className="border border-slate-200 rounded-lg py-2 px-3 outline-none focus:ring-2 focus:ring-brand-500 bg-white max-w-xs"
+                            value={localFilters.loteFilter}
+                            onChange={(e) => updateLocalFilter('loteFilter', e.target.value)}
+                          >
+                              <option value="all">Todas as importações</option>
+                              {lotes.map(l => (
+                                <option key={l.chave} value={l.chave}>{l.rotulo} ({l.n})</option>
+                              ))}
+                          </select>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => updateLocalFilter('paraConferir', !localFilters.paraConferir)}
+                      className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                        localFilters.paraConferir
+                          ? 'bg-amber-100 border-amber-300 text-amber-900'
+                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                      title="Só o que subiu de extrato e ainda não foi aprovado"
+                    >
+                        <Clock size={15} /> A conferir do extrato
+                    </button>
+                </div>
+                {filters.paraConferir && (
+                    <div className="text-sm text-amber-900 bg-amber-50 border border-amber-200 px-3 py-2 rounded-md">
+                        Estes lançamentos já estão conciliados — o extrato provou que o dinheiro passou — e seguem
+                        <strong> pendentes</strong> porque ninguém conferiu a rubrica ainda. Confira a rubrica, reparta se
+                        precisar, e aprove. A etiqueta <span className="font-semibold">rubrica a conferir</span> marca as
+                        que a importação deduziu sem certeza.
+                    </div>
+                )}
                 {sortConfig.key === 'manual' && (
                     <div className="text-sm text-sky-700 bg-sky-50 px-3 py-1.5 rounded-md -mb-1">
                         Ordem manual ativada. Clique no cabeçalho de uma coluna para reordenar.
@@ -568,6 +645,27 @@ const Transactions: React.FC<TransactionsProps> = ({
                                     <td className="px-6 py-4 text-slate-900">
                                         {t.descricao}
                                         {hasSplit && <span className="ml-2 text-xs font-normal text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded">Dividido</span>}
+                                        {veioDoExtrato(t) && (
+                                          <span
+                                            className="ml-2 inline-flex items-center gap-1 text-xs font-normal text-sky-800 bg-sky-100 px-1.5 py-0.5 rounded no-print"
+                                            title={[t.ofx_arquivo, t.ofx_memo].filter(Boolean).join(' · ') || 'importado de extrato OFX'}
+                                          >
+                                            <FileDown size={11} /> extrato
+                                          </span>
+                                        )}
+                                        {t.ofx_revisar && t.status === 'pendente' && (
+                                          <span
+                                            className="ml-1.5 inline-flex items-center text-xs font-normal text-amber-900 bg-amber-100 px-1.5 py-0.5 rounded no-print"
+                                            title={t.ofx_motivo ? `Rubrica deduzida: ${t.ofx_motivo}` : 'Rubrica deduzida sem certeza'}
+                                          >
+                                            rubrica a conferir
+                                          </span>
+                                        )}
+                                        {t.conciliado && t.status === 'pendente' && (
+                                          <span className="ml-1.5 inline-flex items-center gap-1 text-xs font-normal text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded no-print" title="Bateu com o extrato do banco; falta aprovar">
+                                            <Link2 size={11} /> conciliado
+                                          </span>
+                                        )}
                                     </td>
                                     <td className="px-6 py-4 font-medium text-slate-600">{t.fornecedor}</td>
                                     <td className="px-6 py-4 text-slate-500 truncate max-w-xs">

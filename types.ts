@@ -86,6 +86,12 @@ export interface Lancamento {
   // importação aprender a rubrica com esta.
   ofx_fitid?: string | null;
   ofx_memo?: string | null;
+  // Rastro da importação: de qual arquivo veio, quando subiu, se a rubrica
+  // ainda precisa de conferência e por que ela foi escolhida.
+  ofx_arquivo?: string | null;
+  ofx_importado_em?: string | null;
+  ofx_revisar?: boolean | null;
+  ofx_motivo?: string | null;
 }
 
 export interface PrevisaoItem {
@@ -119,6 +125,12 @@ export interface TransactionFilters {
   leilaoFilter: Set<string>;
   unidadeFilter: Set<string>;
   rubricaFilter: Set<string>;
+  // De onde veio o lançamento, e qual importação o trouxe ('all' ou a data
+  // do lote). `paraConferir` deixa só o que subiu de extrato e ninguém
+  // aprovou ainda.
+  origemFilter: 'all' | 'extrato' | 'manual';
+  loteFilter: string;
+  paraConferir: boolean;
   currentPage: number;
 }
 
