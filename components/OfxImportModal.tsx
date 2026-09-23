@@ -354,15 +354,24 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
       }
       aCriar = linhas.filter(l => l.acao === 'criar');
 
-      // A coluna que guarda a origem no extrato é opcional: sem ela a
-      // importação funciona igual, só perde a trava contra reimportar o mesmo
-      // arquivo duas vezes e o aprendizado entre uma importação e a seguinte.
+      // As colunas de origem são opcionais: sem elas a importação funciona
+      // igual, só perde a trava contra reimportar o mesmo arquivo, o
+      // aprendizado entre uma importação e a seguinte, e o rastro do lote na
+      // tela de Lançamentos.
       let guardaOrigem = false;
+      let guardaLote = false;
       try {
         guardaOrigem = !(await supabase.from('lancamentos').select('ofx_fitid').limit(1)).error;
+        guardaLote = guardaOrigem
+          && !(await supabase.from('lancamentos').select('ofx_arquivo, ofx_importado_em, ofx_revisar, ofx_motivo').limit(1)).error;
       } catch {
         guardaOrigem = false;
+        guardaLote = false;
       }
+
+      // Uma importação, um carimbo: é o que agrupa as linhas deste arquivo na
+      // tela depois, para o cliente saber o que subiu junto.
+      const importadoEm = new Date().toISOString();
 
       const criados: Lancamento[] = [];
       const blocos = 50;
@@ -395,6 +404,14 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
             created_by: user.id,
             ...(statusNovo === 'aprovado' ? { approved_by: user.id } : {}),
             ...(guardaOrigem ? { ofx_fitid: l.transacao.fitid || null, ofx_memo: l.transacao.memo } : {}),
+            // Rubrica que a importação deduziu sem certeza fica marcada para
+            // conferência: é onde costuma faltar rubrica certa ou divisão.
+            ...(guardaLote ? {
+              ofx_arquivo: nomeArquivo || null,
+              ofx_importado_em: importadoEm,
+              ofx_revisar: l.confianca !== 'alta',
+              ofx_motivo: l.motivo || null,
+            } : {}),
           };
         });
 
@@ -439,7 +456,11 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
         `${conciliados.length} conciliado(s) com lançamentos que já existiam` +
         (aprovados.length ? ` (${aprovados.length} aprovado(s) pelo extrato)` : '') + `\n` +
         `${resumo.ignorar} ignorado(s)\n\n` +
-        `Extrato: ${conta.conta} — ${formatDate(conta.inicio)} a ${formatDate(conta.fim)}`,
+        `Extrato: ${conta.conta} — ${formatDate(conta.inicio)} a ${formatDate(conta.fim)}\n\n` +
+        (statusNovo === 'pendente' && criados.length
+          ? `Os criados entram conciliados e pendentes. Para conferir a rubrica: `
+            + `Lançamentos › botão "A conferir do extrato" (ou o filtro Importação com este arquivo).`
+          : ''),
       );
       fechar();
     } catch (e) {
@@ -894,12 +915,13 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
             )}
 
             <div className="p-4 border-t border-gray-100 flex items-center gap-3 bg-gray-50 rounded-b-xl">
-              <div className="flex items-center gap-2 text-sm text-slate-600">
+              <div className="flex items-center gap-2 text-sm text-slate-600"
+                   title="Tudo que vem do extrato entra conciliado — o banco já provou o movimento. O status diz se a rubrica ainda precisa ser conferida.">
                 <span>Criar como</span>
                 <select value={statusNovo} onChange={e => setStatusNovo(e.target.value as 'pendente' | 'aprovado')}
                         className="border border-slate-300 rounded-lg p-1.5 text-sm bg-white">
-                  <option value="pendente">Pendente de aprovação</option>
-                  <option value="aprovado">Já aprovado</option>
+                  <option value="pendente">Conciliado, pendente de conferência</option>
+                  <option value="aprovado">Conciliado e já aprovado</option>
                 </select>
               </div>
 
