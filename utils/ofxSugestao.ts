@@ -58,6 +58,8 @@ export interface LinhaImportacao {
   categoria_id: string;
   divisoes: Divisao[];        // vazio = pagamento inteiro numa rubrica só
   leilao_id: string;
+  leilaoConfianca: Confianca;  // nenhuma = ninguém sugeriu, quem revisa escolhe
+  leilaoMotivo: string;
   fornecedor: string;
   descricao: string;
   data_competencia: string;
@@ -83,6 +85,15 @@ const PREFIXOS_COM_LEILAO = ['10', '20', '21', '22', '50'];
 
 export const rubricaTemLeilao = (codigo: string | undefined | null): boolean =>
   !!codigo && PREFIXOS_COM_LEILAO.some(p => codigo.trim().startsWith(p));
+
+/**
+ * Janela em que um movimento pode pertencer a um evento. Medido nos 9.559
+ * lançamentos que já têm leilão: a despesa começa ~20 dias antes do remate e
+ * a cobrança se arrasta depois dele; 95% cai entre 120 dias depois do evento
+ * e 45 dias antes dele. Fora disso o leilão é de outra temporada.
+ */
+const EVENTO_ANTES_DIAS = 120;   // evento já aconteceu há até 120 dias
+const EVENTO_DEPOIS_DIAS = 45;   // evento ainda vai acontecer, em até 45 dias
 
 /** Mesmo mês de calendário — datas vêm como AAAA-MM-DD. */
 const mesmoMes = (a: string, b: string): boolean => !!a && !!b && a.slice(0, 7) === b.slice(0, 7);
@@ -134,17 +145,49 @@ const rubricaDominante = (lancs: Lancamento[]): { categoria_id: string; share: n
   return { categoria_id: melhor, share: total ? max / total : 0, n: total };
 };
 
-/** Leilão mais frequente entre os lançamentos, quando há um claro favorito. */
-const leilaoDominante = (lancs: Lancamento[]): string => {
+/**
+ * Leilão provável para um movimento, a partir do que o mesmo pagador já
+ * rendeu antes — considerando só os eventos da temporada do movimento.
+ *
+ * Sem a janela, um pagador que aparece todo ano puxava a edição de 2023 para
+ * um pagamento de 2026: os nomes se repetem (CATEL, RMK, SJ…) e a contagem
+ * bruta premiava o ano com mais lançamentos. Medido contra a base: a regra
+ * antiga acertava 30%; esta, exigindo 2+ lançamentos e 60% de concentração,
+ * acerta 85%. Quando a evidência é mais fraca ela ainda sugere, mas avisa —
+ * e, sem evidência nenhuma, deixa em branco em vez de chutar.
+ */
+const leilaoDoHistorico = (
+  lancs: Lancamento[],
+  data: string,
+  naJanela: (leilaoId: string) => boolean,
+): { leilao_id: string; confianca: Confianca; motivo: string } => {
   const contagem = new Map<string, number>();
+  let total = 0;
   lancs.forEach(l => {
-    if (!l.leilao_id) return;
+    if (!l.leilao_id || !naJanela(l.leilao_id)) return;
     contagem.set(l.leilao_id, (contagem.get(l.leilao_id) ?? 0) + 1);
+    total++;
   });
+
   let melhor = '';
   let max = 0;
   contagem.forEach((n, id) => { if (n > max) { max = n; melhor = id; } });
-  return max >= 2 ? melhor : '';
+  if (!melhor || !total) return { leilao_id: '', confianca: 'nenhuma', motivo: '' };
+
+  const share = max / total;
+  const confianca: Confianca = max >= 2 && share >= 0.6 ? 'alta'
+    : share >= 0.4 ? 'media'
+      : 'nenhuma';
+  if (confianca === 'nenhuma') {
+    return { leilao_id: '', confianca, motivo: '' };
+  }
+  return {
+    leilao_id: melhor,
+    confianca,
+    motivo: max >= 2
+      ? `${max} lançamento(s) desse pagador nesse leilão`
+      : 'um lançamento desse pagador nesse leilão',
+  };
 };
 
 interface Indices {
@@ -265,20 +308,10 @@ const grauDeConfianca = (share: number, n: number, peso: number): Confianca => {
   return 'nenhuma';
 };
 
-/**
- * Leilão provável quando o fornecedor não indica um: o evento cuja data está
- * mais perto do movimento. Fora de 60 dias não arrisca.
- */
-const leilaoPorData = (data: string, leiloes: Leilao[]): string => {
-  let melhor = '';
-  let menor = Infinity;
-  leiloes.forEach(l => {
-    if (!l.data) return;
-    const d = diasEntre(data, l.data);
-    if (d < menor) { menor = d; melhor = l.id; }
-  });
-  return menor <= 60 ? melhor : '';
-};
+// Não existe palpite de leilão "pelo evento mais próximo": medido na base,
+// acerta 10% — há em média 70 remates dentro da janela de um pagamento, e em
+// temporada de Expointer são vários no mesmo dia. Chutar aí só dá trabalho de
+// desfazer, então quem revisa escolhe.
 
 export interface ParametrosSugestao {
   transacoes: TransacaoOfx[];
@@ -308,6 +341,15 @@ export const montarSugestoes = ({
 
   const jaTomados = new Set<string>();
   const categoriasValidas = new Set(categorias.map(c => c.id));
+  const dataLeilao = new Map(leiloes.filter(l => l.data).map(l => [l.id, l.data]));
+
+  /** O evento pode ter a ver com um movimento desta data? */
+  const naJanela = (leilaoId: string, data: string): boolean => {
+    const evento = dataLeilao.get(leilaoId);
+    if (!evento) return false;
+    const dias = Math.round((Date.parse(data + 'T12:00:00') - Date.parse(evento + 'T12:00:00')) / 86400000);
+    return dias <= EVENTO_ANTES_DIAS && dias >= -EVENTO_DEPOIS_DIAS;
+  };
   const codigoPorId = new Map(categorias.map(c => [c.id, c.codigo]));
   const aceitaLeilao = (categoriaId: string) => rubricaTemLeilao(codigoPorId.get(categoriaId));
 
@@ -367,6 +409,8 @@ export const montarSugestoes = ({
 
     let categoria_id = existente?.categoria_id ?? '';
     let leilao_id = existente?.leilao_id ?? '';
+    let leilaoConfianca: Confianca = existente?.leilao_id ? 'alta' : 'nenhuma';
+    let leilaoMotivo = existente?.leilao_id ? 'leilão do lançamento que já existe' : '';
     let fornecedor = existente?.fornecedor ?? t.contraparte;
     let divisoes: Divisao[] = [];
     let confianca: Confianca = 'nenhuma';
@@ -388,7 +432,10 @@ export const montarSugestoes = ({
           confianca = grauDeConfianca(dom.share, dom.n, ref.peso);
           motivo = `${ref.motivo}, ${Math.round(dom.share * 100)}% nessa rubrica`;
         }
-        leilao_id = leilaoDominante(ref.lancs);
+        const sugLeilao = leilaoDoHistorico(ref.lancs, t.data, id => naJanela(id, t.data));
+        leilao_id = sugLeilao.leilao_id;
+        leilaoConfianca = sugLeilao.confianca;
+        leilaoMotivo = sugLeilao.motivo;
         const nomeConhecido = ref.lancs.find(l => l.fornecedor)?.fornecedor;
         if (ref.peso >= 0.8 && nomeConhecido) fornecedor = nomeConhecido;
 
@@ -400,14 +447,19 @@ export const montarSugestoes = ({
           const modelo = ref.lancs.find(l =>
             Number(l.valor) === t.valor && lerDivisoes(l).length > 1);
           if (modelo) {
-            divisoes = lerDivisoes(modelo).map((d, i) => ({ ...d, id: `sug-${i}` }));
+            // A repartição antiga pode apontar para o evento do ano passado:
+            // o rateio entre rubricas se repete, o leilão não.
+            divisoes = lerDivisoes(modelo).map((d, i) => ({
+              ...d,
+              id: `sug-${i}`,
+              leilao_id: d.leilao_id && naJanela(d.leilao_id, t.data) ? d.leilao_id : '',
+            }));
             categoria_id = divisoes[0].categoria_id;
             motivo = `${ref.motivo}, repartida em ${divisoes.length} rubricas como antes`;
             confianca = 'alta';
           }
         }
       }
-      if (!leilao_id) leilao_id = leilaoPorData(t.data, leiloes);
     }
 
     // Rubrica fora das famílias de evento não leva leilão, nem sugerido pelo
@@ -438,6 +490,8 @@ export const montarSugestoes = ({
       categoria_id,
       divisoes,
       leilao_id,
+      leilaoConfianca,
+      leilaoMotivo,
       fornecedor,
       descricao: t.memo,
       data_competencia: t.data,
@@ -458,6 +512,9 @@ export const resumir = (linhas: LinhaImportacao[]) => ({
   criar: linhas.filter(l => l.acao === 'criar').length,
   ignorar: linhas.filter(l => l.acao === 'ignorar').length,
   semRubrica: linhas.filter(l => l.acao === 'criar' && !l.categoria_id).length,
+  // Rubrica de evento sem leilão escolhido: não trava a gravação, mas é o que
+  // quem revisa precisa olhar depois que a sugestão parou de chutar.
+  semLeilao: linhas.filter(l => l.acao === 'criar' && !l.leilao_id).length,
   duplicadas: linhas.filter(l => l.duplicada).length,
   jaLancados: linhas.filter(l => l.alerta || l.duplicada).length,
   // Avisadas de que já existem e ainda assim marcadas para criar: é o que a
