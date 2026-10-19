@@ -71,9 +71,29 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
   const opcoesRubrica = useMemo(
     () => categories.map(c => ({ id: c.id, nome: `${c.codigo} - ${c.rubrica}` })),
     [categories]);
-  const opcoesLeilao = useMemo(
-    () => leiloes.map(l => ({ id: l.id, nome: l.nome })),
+  // A lista crua tem centenas de remates de todos os anos. Ordenada pela
+  // distância até o movimento, o da temporada aparece primeiro, e os de fora
+  // da janela ficam no fim marcados — ainda escolhíveis, mas sem confundir.
+  const leiloesOrdenados = useMemo(
+    () => leiloes.map(l => ({ ...l, tempo: l.data ? Date.parse(l.data + 'T12:00:00') : NaN })),
     [leiloes]);
+
+  const opcoesLeilaoPara = useCallback((data: string) => {
+    const alvo = Date.parse(data + 'T12:00:00');
+    return [...leiloesOrdenados]
+      .map(l => {
+        const dias = Number.isNaN(l.tempo) ? NaN : Math.round((alvo - l.tempo) / 86400000);
+        const naJanela = !Number.isNaN(dias) && dias <= 120 && dias >= -45;
+        return { l, dias, naJanela };
+      })
+      .sort((a, b) => Number(b.naJanela) - Number(a.naJanela) || Math.abs(a.dias) - Math.abs(b.dias))
+      .map(({ l, naJanela }) => ({
+        id: l.id,
+        nome: l.data
+          ? `${l.nome} · ${formatDate(l.data)}${naJanela ? '' : ' (fora da temporada)'}`
+          : l.nome,
+      }));
+  }, [leiloesOrdenados]);
   const leilaoMap = useMemo(() => new Map(leiloes.map(l => [l.id, l])), [leiloes]);
   const rubricaMap = useMemo(
     () => new Map(categories.map(c => [c.id, `${c.codigo} - ${c.rubrica}`])),
@@ -409,8 +429,10 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
             ...(guardaLote ? {
               ofx_arquivo: nomeArquivo || null,
               ofx_importado_em: importadoEm,
-              ofx_revisar: l.confianca !== 'alta',
-              ofx_motivo: l.motivo || null,
+              ofx_revisar: l.confianca !== 'alta'
+                || l.leilaoConfianca === 'media'
+                || (aceitaLeilao(rubricaDaLinha(l)) && !l.leilao_id),
+              ofx_motivo: [l.motivo, l.leilao_id ? `leilão: ${l.leilaoMotivo}` : ''].filter(Boolean).join(' · ') || null,
             } : {}),
           };
         });
@@ -772,12 +794,24 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                                 não se aplica a esta rubrica
                               </span>
                             ) : (
-                              <SearchableSelect
-                                options={opcoesLeilao}
-                                value={l.leilao_id || null}
-                                onChange={id => alterarLinha(l.chave, { leilao_id: id ?? '' })}
-                                placeholder="Sem leilão"
-                              />
+                              <>
+                                <SearchableSelect
+                                  options={opcoesLeilaoPara(l.transacao.data)}
+                                  value={l.leilao_id || null}
+                                  onChange={id => alterarLinha(l.chave, {
+                                    leilao_id: id ?? '',
+                                    leilaoConfianca: id ? 'alta' : 'nenhuma',
+                                    leilaoMotivo: id ? 'escolhido manualmente' : '',
+                                  })}
+                                  placeholder="Escolher leilão..."
+                                />
+                                <div className={`text-xs mt-0.5 leading-tight ${
+                                  l.leilaoConfianca === 'media' ? 'text-amber-700' : 'text-slate-400'}`}>
+                                  {l.leilao_id
+                                    ? l.leilaoMotivo + (l.leilaoConfianca === 'media' ? ' — confira' : '')
+                                    : 'sem pista do leilão no extrato — escolha, se for de evento'}
+                                </div>
+                              </>
                             )}
                           </td>
                           <td className="px-3 py-2 align-top">
@@ -856,7 +890,7 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                                           <span className="text-xs text-slate-400 px-2">sem leilão nesta rubrica</span>
                                         ) : (
                                           <SearchableSelect
-                                            options={opcoesLeilao}
+                                            options={opcoesLeilaoPara(l.transacao.data)}
                                             value={d.leilao_id || null}
                                             onChange={id => mudarDivisao(l.chave, d.id, 'leilao_id', id ?? '')}
                                             placeholder="Sem leilão"
