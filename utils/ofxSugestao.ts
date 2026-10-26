@@ -70,6 +70,9 @@ export interface LinhaImportacao {
 // Casamento seguro: mesma data, ou quase — o banco às vezes credita no dia
 // seguinte ao que a equipe lançou.
 const TOLERANCIA_DIAS = 3;
+// Com o pagador batendo, a folga é maior: a equipe lança na data combinada e
+// o pagamento sai dias depois.
+const TOLERANCIA_DIAS_MESMO_PAGADOR = 7;
 // Fora dessa folga ainda dá para desconfiar, sem afirmar. Duas janelas: uma
 // para "mesmo valor" e outra, mais larga, para "mesmo valor e mesmo pagador".
 const ALERTA_DIAS = 15;
@@ -101,8 +104,12 @@ const mesmoMes = (a: string, b: string): boolean => !!a && !!b && a.slice(0, 7) 
 const diasEntre = (a: string, b: string): number =>
   Math.round(Math.abs(Date.parse(a + 'T12:00:00') - Date.parse(b + 'T12:00:00')) / 86400000);
 
+// Forma jurídica não identifica ninguém: "REMATEFY" e "REMATEFY LTDA" são o
+// mesmo pagador, e manter essas palavras só afasta os nomes na comparação.
+const FORMA_JURIDICA = new Set(['LTDA', 'EIRELI', 'EPP', 'MEI', 'CIA', 'SOCIEDADE']);
+
 const tokens = (nome: string): string[] =>
-  normalizarNome(nome).split(' ').filter(t => t.length > 2);
+  normalizarNome(nome).split(' ').filter(t => t.length > 2 && !FORMA_JURIDICA.has(t));
 
 /** Jaccard entre conjuntos de palavras — tolera ordem e nome do meio faltando. */
 const semelhanca = (a: string, b: string): number => {
@@ -112,6 +119,27 @@ const semelhanca = (a: string, b: string): number => {
   let comuns = 0;
   ta.forEach(t => { if (tb.has(t)) comuns++; });
   return comuns / (ta.size + tb.size - comuns);
+};
+
+/**
+ * Um nome está contido no outro? O banco manda o nome completo e a equipe
+ * escreve o curto: "FINANCE" × "FINANCE GESTÃO EMPRESARIAL LTDA", "EDUARDO
+ * CARDOSO" × "EDUARDO MEIRELLES CARDOSO". Medir por Jaccard punia justamente
+ * esses casos — o nome mais completo derrubava a nota. Aqui basta que todas
+ * as palavras do lado curto estejam no longo, com pelo menos uma delas
+ * distintiva, para não casar por "DA SILVA" ou "501".
+ */
+const nomeContido = (a: string, b: string): boolean => {
+  const ta = new Set(tokens(a));
+  const tb = new Set(tokens(b));
+  if (!ta.size || !tb.size) return false;
+  const [curto, longo] = ta.size <= tb.size ? [ta, tb] : [tb, ta];
+  let distintiva = false;
+  for (const t of curto) {
+    if (!longo.has(t)) return false;
+    if (t.length >= 5) distintiva = true;
+  }
+  return distintiva;
 };
 
 /**
@@ -125,6 +153,7 @@ const mesmoPagador = (fornecedor: string, contraparte: string): boolean => {
   if (!a || !contraparte) return false;
   if (a === contraparte) return true;
   if (a.length >= 8 && contraparte.length >= 8 && (a.includes(contraparte) || contraparte.includes(a))) return true;
+  if (nomeContido(a, contraparte)) return true;
   return semelhanca(a, contraparte) >= 0.6;
 };
 
@@ -330,10 +359,13 @@ export const montarSugestoes = ({
   transacoes, historico, bancoId, categorias, leiloes,
 }: ParametrosSugestao): LinhaImportacao[] => {
   const idx = indexarHistorico(historico);
-  const doBanco = historico.filter(l => l.banco_id === bancoId);
 
+  // Candidatos à conciliação saem de todas as contas, não só da do extrato.
+  // A equipe lança pelo que combinou, e o pagamento sai de outra conta do
+  // grupo — são duas contas no mesmo banco, e o lançamento certo ficava
+  // invisível para a importação, que criava um segundo no lugar.
   const candidatosPorValor = new Map<number, Lancamento[]>();
-  doBanco.forEach(l => {
+  historico.forEach(l => {
     const v = Number(l.valor) || 0;
     if (!candidatosPorValor.has(v)) candidatosPorValor.set(v, []);
     candidatosPorValor.get(v)!.push(l);
@@ -364,9 +396,22 @@ export const montarSugestoes = ({
     const t = transacoes[i];
     const tipo: 'receita' | 'despesa' = t.tipo === 'credito' ? 'receita' : 'despesa';
 
+    const pagadorBate = (l: Lancamento) => mesmoPagador(l.fornecedor, t.contraparte);
+
     const candidatos = (candidatosPorValor.get(t.valor) ?? [])
-      .filter(l => l.tipo === tipo && !jaTomados.has(l.id) && diasEntre(l.data_pagamento, t.data) <= TOLERANCIA_DIAS)
-      .sort((a, b) => diasEntre(a.data_pagamento, t.data) - diasEntre(b.data_pagamento, t.data));
+      .filter(l => {
+        if (l.tipo !== tipo || jaTomados.has(l.id)) return false;
+        const mesmoNome = pagadorBate(l);
+        if (diasEntre(l.data_pagamento, t.data) > (mesmoNome ? TOLERANCIA_DIAS_MESMO_PAGADOR : TOLERANCIA_DIAS)) return false;
+        // Fora da conta do extrato, só casa quando o pagador também bate: num
+        // mesmo dia saem vários PIX de valor redondo igual, e puxar para cá o
+        // lançamento de outra conta sem essa certeza é pior que criar um novo.
+        return l.banco_id === bancoId || mesmoNome;
+      })
+      .sort((a, b) =>
+        Number(b.banco_id === bancoId) - Number(a.banco_id === bancoId)
+        || Number(pagadorBate(b)) - Number(pagadorBate(a))
+        || diasEntre(a.data_pagamento, t.data) - diasEntre(b.data_pagamento, t.data));
 
     const existente = candidatos[0] ?? null;
     const mesmaData = candidatos.filter(l => l.data_pagamento === t.data);
@@ -377,13 +422,15 @@ export const montarSugestoes = ({
     // Não casou dentro da folga, mas existe algo parecido demais para criar
     // sem avisar: mesmo valor e mesmo sentido, perto da data. Se o pagador
     // também bate, a janela é maior e o alerta é mais firme.
-    // Só dentro do mesmo mês: mensalidade, diária e comissão repetem o mesmo
-    // valor todo mês, e o lançamento do mês passado não é este — tratar como
-    // "já lançado" deixava o movimento novo de fora.
+    // Com pagador diferente, só dentro do mesmo mês: mensalidade, diária e
+    // comissão repetem o mesmo valor todo mês, e o lançamento do mês passado
+    // não é este. Com o mesmo pagador, a virada de mês não atrapalha — lançar
+    // em 02/10 o que o banco pagou em 30/09 é rotina.
     let alerta: Alerta | null = null;
     if (!existente && !duplicada) {
       const parecidos = (candidatosPorValor.get(t.valor) ?? [])
-        .filter(l => l.tipo === tipo && !jaTomados.has(l.id) && mesmoMes(l.data_pagamento, t.data))
+        .filter(l => l.tipo === tipo && !jaTomados.has(l.id)
+          && (mesmoPagador(l.fornecedor, t.contraparte) || mesmoMes(l.data_pagamento, t.data)))
         .map(l => ({ l, dias: diasEntre(l.data_pagamento, t.data) }))
         .filter(({ l, dias }) =>
           dias <= (mesmoPagador(l.fornecedor, t.contraparte) ? ALERTA_DIAS_MESMO_PAGADOR : ALERTA_DIAS))
@@ -506,7 +553,7 @@ export const montarSugestoes = ({
 };
 
 /** Contagem para o rodapé da tela. */
-export const resumir = (linhas: LinhaImportacao[]) => ({
+export const resumir = (linhas: LinhaImportacao[], bancoId = '') => ({
   total: linhas.length,
   conciliar: linhas.filter(l => l.acao === 'conciliar').length,
   criar: linhas.filter(l => l.acao === 'criar').length,
@@ -517,11 +564,24 @@ export const resumir = (linhas: LinhaImportacao[]) => ({
   semLeilao: linhas.filter(l => l.acao === 'criar' && !l.leilao_id).length,
   duplicadas: linhas.filter(l => l.duplicada).length,
   jaLancados: linhas.filter(l => l.alerta || l.duplicada).length,
+  // Conciliações que vão corrigir a conta do lançamento: o extrato é a prova
+  // de qual conta pagou.
+  outraConta: linhas.filter(l => l.acao === 'conciliar' && contaDiferente(l, bancoId)).length,
   // Avisadas de que já existem e ainda assim marcadas para criar: é o que a
   // tela precisa confirmar antes de gravar. O alerta fraco (só o valor bate,
   // pagador diferente) nasce em "criar" de propósito e não pede confirmação.
   criarMesmoAvisado: linhas.filter(l => l.acao === 'criar' && (l.alerta?.forte || l.duplicada)).length,
 });
+
+/**
+ * A conciliação vai mexer na conta do lançamento? Acontece quando a equipe
+ * lançou numa conta e o pagamento saiu de outra: o extrato é quem prova qual
+ * conta pagou, então conciliar corrige o banco.
+ */
+export const contaDiferente = (l: LinhaImportacao, bancoId: string): boolean => {
+  const alvo = alvoConciliacao(l);
+  return !!alvo && !!bancoId && alvo.banco_id !== bancoId;
+};
 
 /** O lançamento com que a linha pode ser conciliada, tenha casado ou só se parecido. */
 export const alvoConciliacao = (l: LinhaImportacao): Lancamento | null =>
