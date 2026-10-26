@@ -8,7 +8,7 @@ import { Lancamento, Banco, Categoria, Leilao, User } from '../types';
 import { formatCurrency, formatDate } from '../utils/format';
 import { lerOfx, decodificarOfx, ContaOfx } from '../utils/ofx';
 import {
-  montarSugestoes, resumir, alvoConciliacao, lerDivisoes,
+  montarSugestoes, resumir, alvoConciliacao, lerDivisoes, contaDiferente,
   LinhaImportacao, Acao, Confianca, Divisao,
   rubricaTemLeilao,
 } from '../utils/ofxSugestao';
@@ -64,6 +64,9 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
   const [filtroAcao, setFiltroAcao] = useState<Filtro>('todas');
   const [statusNovo, setStatusNovo] = useState<'pendente' | 'aprovado'>('pendente');
   const [aprovarAoConciliar, setAprovarAoConciliar] = useState(true);
+  // Lançamento que a equipe registrou em outra conta: o extrato prova de qual
+  // conta saiu o dinheiro, mas mover é decisão de quem revisa.
+  const [corrigirConta, setCorrigirConta] = useState(true);
   const [salvando, setSalvando] = useState(false);
   const [progresso, setProgresso] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -262,7 +265,8 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
     });
   }, [linhas, busca, filtroAcao]);
 
-  const resumo = useMemo(() => resumir(linhas), [linhas]);
+  const resumo = useMemo(() => resumir(linhas, bancoId), [linhas, bancoId]);
+  const bancoMap = useMemo(() => new Map(bancos.map(b => [b.id, b.nome])), [bancos]);
   const pendentesAConciliar = useMemo(
     () => linhas.filter(l => l.acao === 'conciliar' && alvoConciliacao(l)?.status === 'pendente').length,
     [linhas]);
@@ -448,12 +452,18 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
       // rejeitado não volta à vida por conciliação, e aprovado já está.
       const conciliados: string[] = [];
       const aprovados: string[] = [];
-      const grupos: { ids: string[]; aprovar: boolean }[] = [
-        { ids: aConciliar.filter(l => aprovarAoConciliar && alvoConciliacao(l)!.status === 'pendente')
-            .map(l => alvoConciliacao(l)!.id), aprovar: true },
-        { ids: aConciliar.filter(l => !(aprovarAoConciliar && alvoConciliacao(l)!.status === 'pendente'))
-            .map(l => alvoConciliacao(l)!.id), aprovar: false },
-      ];
+      // Quatro combinações: aprovar ou não, corrigir a conta ou não. Quando o
+      // lançamento está em outra conta, o extrato é a prova de quem pagou —
+      // conciliar move o lançamento para a conta certa em vez de criar um
+      // segundo lá.
+      const grupos = [true, false].flatMap(aprovar => [true, false].map(corrigeEsta => ({
+        aprovar,
+        corrigeEsta,
+        ids: aConciliar
+          .filter(l => (aprovarAoConciliar && alvoConciliacao(l)!.status === 'pendente') === aprovar
+            && (corrigirConta && contaDiferente(l, bancoId)) === corrigeEsta)
+          .map(l => alvoConciliacao(l)!.id),
+      })));
 
       for (const grupo of grupos) {
         for (let i = 0; i < grupo.ids.length; i += blocos) {
@@ -461,9 +471,11 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
           const ids = grupo.ids.slice(i, i + blocos);
           const { error } = await supabase
             .from('lancamentos')
-            .update(grupo.aprovar
-              ? { conciliado: true, status: 'aprovado', approved_by: user.id }
-              : { conciliado: true })
+            .update({
+              conciliado: true,
+              ...(grupo.aprovar ? { status: 'aprovado', approved_by: user.id } : {}),
+              ...(grupo.corrigeEsta ? { banco_id: bancoId } : {}),
+            })
             .in('id', ids);
           if (error) throw new Error(`Falha ao conciliar: ${error.message}`);
           conciliados.push(...ids);
@@ -477,6 +489,7 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
         `${criados.length} lançamento(s) criado(s)\n` +
         `${conciliados.length} conciliado(s) com lançamentos que já existiam` +
         (aprovados.length ? ` (${aprovados.length} aprovado(s) pelo extrato)` : '') + `\n` +
+        (corrigirConta && resumo.outraConta ? `${resumo.outraConta} movido(s) para a conta deste extrato\n` : '') +
         `${resumo.ignorar} ignorado(s)\n\n` +
         `Extrato: ${conta.conta} — ${formatDate(conta.inicio)} a ${formatDate(conta.fim)}\n\n` +
         (statusNovo === 'pendente' && criados.length
@@ -688,6 +701,13 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                                       )}
                                       {ja.status === 'rejeitado' && (
                                         <> · <span className="font-semibold text-red-700">rejeitado</span></>
+                                      )}
+                                      {contaDiferente(l, bancoId) && (
+                                        <> · <span className="font-semibold">lançado em {bancoMap.get(ja.banco_id) || 'outra conta'}</span>
+                                          {corrigirConta
+                                            ? <span className="text-sky-900"> → será movido para a conta deste extrato</span>
+                                            : <span className="text-amber-900"> → fica na conta onde está</span>}
+                                        </>
                                       )}
                                       <br />
                                       <span className={porAproximacao ? 'text-amber-900' : 'text-sky-900'}>
@@ -970,10 +990,26 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                 )}
               </label>
 
+              {resumo.outraConta > 0 && (
+                <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer"
+                       title="A equipe lançou numa conta e o pagamento saiu de outra. O extrato é a prova de qual conta pagou.">
+                  <input type="checkbox" checked={corrigirConta}
+                         onChange={e => setCorrigirConta(e.target.checked)}
+                         className="rounded border-slate-300" />
+                  Mover para esta conta
+                  <span className="text-xs text-slate-400">({resumo.outraConta})</span>
+                </label>
+              )}
+
               <div className="flex items-center gap-4 text-sm ml-auto">
                 <span className="flex items-center gap-1 text-sky-700"><Link2 size={14} /> {resumo.conciliar} a conciliar</span>
                 <span className="flex items-center gap-1 text-emerald-700"><CheckCircle2 size={14} /> {resumo.criar} a criar</span>
                 <span className="flex items-center gap-1 text-slate-500"><EyeOff size={14} /> {resumo.ignorar} ignorados</span>
+                {resumo.outraConta > 0 && (
+                  <span className="flex items-center gap-1 text-amber-700" title="Lançados em outra conta; conciliar move para a conta deste extrato">
+                    {resumo.outraConta} de outra conta
+                  </span>
+                )}
               </div>
 
               <button onClick={fechar} className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50">
