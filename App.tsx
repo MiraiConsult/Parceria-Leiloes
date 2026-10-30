@@ -343,13 +343,23 @@ function App() {
     try {
       const BATCH_SIZE = 1000;
       let allLancamentos: Lancamento[] = [];
+      const idsVistos = new Set<string>();
       let lastBatchLength = 0;
       let offset = 0;
       do {
         const { data, error } = await supabase
           .from('lancamentos')
           .select('*')
+          // O id desempata a ordem, e sem ele a carga vinha errada: `created_at`
+          // repete em massa — a migração de 2025 gravou 9.180 lançamentos no
+          // mesmo instante e cada importação de OFX carimba o lote inteiro de
+          // uma vez. Dentro do empate o Postgres não promete ordem nenhuma, e
+          // como cada página é uma consulta nova, o mesmo lançamento podia vir
+          // em duas páginas enquanto outro não vinha em nenhuma: das 14.175
+          // linhas chegavam 11.992 distintas. No DRE isso zerou dezembro/2025 e
+          // dobrou a despesa fixa de junho.
           .order('created_at')
+          .order('id')
           .range(offset, offset + BATCH_SIZE - 1);
 
         if (error) {
@@ -357,7 +367,12 @@ function App() {
           throw error;
         }
         if (data) {
-          allLancamentos = allLancamentos.concat(data as Lancamento[]);
+          // Rede de segurança: um lançamento criado entre uma página e a
+          // seguinte empurra as demais, e sem isso ele entraria duas vezes.
+          // Contar o mesmo lançamento duas vezes no DRE é pior que perdê-lo.
+          (data as Lancamento[]).forEach(l => {
+            if (!idsVistos.has(l.id)) { idsVistos.add(l.id); allLancamentos.push(l); }
+          });
           lastBatchLength = data.length;
           offset += BATCH_SIZE;
         } else {
