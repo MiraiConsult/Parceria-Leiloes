@@ -261,6 +261,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             conciliado: formData.status === 'aprovado' || !!transaction?.conciliado,
             // Quem abriu e salvou já conferiu a rubrica.
             ...(transaction?.ofx_revisar ? { ofx_revisar: false } : {}),
+            // Classificou, sai da fila e segue pendente para quem aprova.
+            ...(transaction?.classificar_por
+              ? { classificar_por: null, classificado_em: new Date().toISOString() }
+              : {}),
             categoria_id: isSplit && splitItems.length > 0 ? splitItems[0].categoria_id : formData.categoria_id,
             split_revenue: isSplit ? splitItems.map(i => ({ categoria_id: i.categoria_id, valor: Math.round(i.valor), leilao_id: i.leilao_id || null, fornecedor: i.fornecedor || '' })) : null,
             leilao_id: formData.leilao_id || null,
@@ -393,6 +397,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[95vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="p-5 border-b border-slate-100 flex justify-between items-center"><h3 className="font-bold text-lg text-slate-800">{isEditing ? 'Editar' : 'Novo'} Lançamento</h3><button onClick={onClose} className="p-1.5 hover:bg-slate-200 rounded-full text-slate-500"><X size={20} /></button></div>
 
+        {isEditing && transaction?.classificar_por && (
+          <div className="mx-6 mt-4 text-sm bg-violet-50 border border-violet-200 text-violet-900 rounded-lg px-3 py-2">
+            <strong>Esperando classificação.</strong> Escolha a rubrica — o centro de custo vem com ela. Ao salvar,
+            esta despesa sai da fila e segue pendente para aprovação.
+          </div>
+        )}
         {isEditing && (transaction?.ofx_importado_em || transaction?.ofx_memo) && (
           <div className="mx-6 mt-4 text-sm bg-sky-50 border border-sky-200 text-sky-900 rounded-lg px-3 py-2">
             <strong>Veio do extrato.</strong>{' '}
@@ -486,6 +496,14 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                           <select className="w-full border border-slate-300 rounded-lg p-2 bg-white flex-1" value={formData.categoria_id} onChange={e => handleFormChange('categoria_id', e.target.value)}>{renderCategoryOptions()}</select>
                           <button className="p-2 border border-slate-300 rounded-lg bg-white hover:bg-slate-100"><Plus size={20}/></button>
                       </div>
+                      {/* O centro de custo não se escolhe: ele vem da rubrica. Mostrar
+                          aqui evita abrir o cadastro para conferir em qual centro caiu. */}
+                      <p className="text-xs text-slate-500 mt-1.5">
+                        Centro de custo:{' '}
+                        <span className="font-semibold text-slate-700">
+                          {categories.find(c => c.id === formData.categoria_id)?.centro || '—'}
+                        </span>
+                      </p>
                   </FormField>
               </div>
             )}

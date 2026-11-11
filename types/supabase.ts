@@ -136,6 +136,8 @@ export type Database = {
           id: string
           leilao_id: string | null
           motivo_rejeicao: string | null
+          classificado_em: string | null
+          classificar_por: string | null
           ofx_arquivo: string | null
           ofx_fitid: string | null
           ofx_importado_em: string | null
@@ -163,6 +165,8 @@ export type Database = {
           id?: string
           leilao_id?: string | null
           motivo_rejeicao?: string | null
+          classificado_em?: string | null
+          classificar_por?: string | null
           ofx_arquivo?: string | null
           ofx_fitid?: string | null
           ofx_importado_em?: string | null
@@ -190,6 +194,8 @@ export type Database = {
           id?: string
           leilao_id?: string | null
           motivo_rejeicao?: string | null
+          classificado_em?: string | null
+          classificar_por?: string | null
           ofx_arquivo?: string | null
           ofx_fitid?: string | null
           ofx_importado_em?: string | null

@@ -92,6 +92,10 @@ export interface Lancamento {
   ofx_importado_em?: string | null;
   ofx_revisar?: boolean | null;
   ofx_motivo?: string | null;
+  // Fila de classificação: enquanto preenchido, este lançamento espera que
+  // essa pessoa diga a rubrica e o centro de custo.
+  classificar_por?: string | null;
+  classificado_em?: string | null;
 }
 
 export interface PrevisaoItem {
@@ -131,6 +135,8 @@ export interface TransactionFilters {
   origemFilter: 'all' | 'extrato' | 'manual';
   loteFilter: string;
   paraConferir: boolean;
+  // Fila de classificação: só o que está esperando rubrica e centro de custo.
+  naFila: boolean;
   currentPage: number;
 }
 

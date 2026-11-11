@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Lancamento, User, Banco, Categoria, Leilao, Unidade, UnvalidatedTransaction, TransactionFilters } from '../types';
 import { formatCurrency, formatDate, parseDate } from '../utils/format';
-import { Check, X, Search, Filter, FileInput, Plus, Pencil, Trash2, Loader, ArrowUp, ArrowDown, ArrowUpDown, GripVertical, Printer, Clock, FileDown, Link2 } from 'lucide-react';
+import { Check, X, Search, Filter, FileInput, Plus, Pencil, Trash2, Loader, ArrowUp, ArrowDown, ArrowUpDown, GripVertical, Printer, Clock, FileDown, Link2, Tags } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { ImportModal } from './ImportModal';
 import { generateLancamentosTemplate } from '../utils/importExport';
@@ -13,6 +13,7 @@ interface TransactionsProps {
   transactionsLoading: boolean;
   setTransactions: React.Dispatch<React.SetStateAction<Lancamento[]>>;
   user: User;
+  users: User[];
   bancos: Banco[];
   categories: Categoria[];
   leiloes: Leilao[];
@@ -30,7 +31,7 @@ type SortDirection = 'asc' | 'desc';
 import DatePickerInput from './DatePickerInput';
 
 const Transactions: React.FC<TransactionsProps> = ({ 
-  transactions, transactionsLoading, setTransactions, user, bancos, categories, leiloes, unidades, 
+  transactions, transactionsLoading, setTransactions, user, users, bancos, categories, leiloes, unidades, 
   unvalidatedTransactions, setUnvalidatedTransactions,
   filters, setFilters, handleOpenModal
 }) => {
@@ -41,6 +42,12 @@ const Transactions: React.FC<TransactionsProps> = ({
   const leilaoMap = useMemo(() => new Map(leiloes.map(l => [l.id, l.nome])), [leiloes]);
   const categoryMap = useMemo(() => new Map(categories.map(c => [c.id, c.rubrica])), [categories]);
   const categoryOptions = useMemo(() => categories.map(c => ({ id: c.id, nome: c.rubrica })), [categories]);
+
+  const nomeUsuario = useMemo(() => new Map(users.map(u => [u.id, u.name])), [users]);
+
+  /** Espera classificação de alguém — de mim, se eu não for quem confere tudo. */
+  const naMinhaFila = (t: Lancamento) => !!t.classificar_por && (user.role !== 'admin' ? t.classificar_por === user.id : true);
+  const totalNaFila = useMemo(() => transactions.filter(naMinhaFila).length, [transactions, user]);
 
   /** Veio de extrato? O carimbo do lote é o sinal; o memo cobre importação antiga. */
   const veioDoExtrato = (t: Lancamento) => !!(t.ofx_importado_em || t.ofx_memo || t.ofx_fitid);
@@ -268,9 +275,10 @@ const Transactions: React.FC<TransactionsProps> = ({
         || t.ofx_importado_em === filters.loteFilter;
       // Fila de conferência: subiu de extrato e ninguém aprovou ainda.
       const matchesConferir = !filters.paraConferir || (doExtrato && t.status === 'pendente');
+      const matchesFila = !filters.naFila || naMinhaFila(t);
 
       return matchesText && matchesStatus && matchesDate && matchesLeilao && matchesUnidade && matchesRubrica
-        && matchesOrigem && matchesLote && matchesConferir;
+        && matchesOrigem && matchesLote && matchesConferir && matchesFila;
     });
 
     if (sortConfig.key === 'manual') {
@@ -519,6 +527,21 @@ const Transactions: React.FC<TransactionsProps> = ({
                           </select>
                       </div>
                     )}
+                    {totalNaFila > 0 && (
+                      <button
+                        onClick={() => updateLocalFilter('naFila', !localFilters.naFila)}
+                        className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                          localFilters.naFila
+                            ? 'bg-violet-100 border-violet-300 text-violet-900'
+                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                        title={user.role === 'admin'
+                          ? 'Despesas encaminhadas para alguém classificar a rubrica e o centro de custo'
+                          : 'Despesas encaminhadas para você classificar'}
+                      >
+                        <Tags size={15} /> {user.role === 'admin' ? 'A classificar' : 'Minha fila'}
+                        <span className="text-xs opacity-70">({totalNaFila})</span>
+                      </button>
+                    )}
                     <button
                       onClick={() => updateLocalFilter('paraConferir', !localFilters.paraConferir)}
                       className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
@@ -530,6 +553,13 @@ const Transactions: React.FC<TransactionsProps> = ({
                         <Clock size={15} /> A conferir do extrato
                     </button>
                 </div>
+                {filters.naFila && (
+                    <div className="text-sm text-violet-900 bg-violet-50 border border-violet-200 px-3 py-2 rounded-md">
+                        Despesas que vieram do extrato e esperam <strong>rubrica e centro de custo</strong>. Abra cada
+                        uma, escolha a rubrica — o centro de custo vem junto com ela — e salve. Ao salvar, a despesa sai
+                        desta fila e segue pendente para aprovação.
+                    </div>
+                )}
                 {filters.paraConferir && (
                     <div className="text-sm text-amber-900 bg-amber-50 border border-amber-200 px-3 py-2 rounded-md">
                         Estes lançamentos já estão conciliados — o extrato provou que o dinheiro passou — e seguem
@@ -659,6 +689,12 @@ const Transactions: React.FC<TransactionsProps> = ({
                                             title={t.ofx_motivo ? `Rubrica deduzida: ${t.ofx_motivo}` : 'Rubrica deduzida sem certeza'}
                                           >
                                             rubrica a conferir
+                                          </span>
+                                        )}
+                                        {t.classificar_por && (
+                                          <span className="ml-1.5 inline-flex items-center gap-1 text-xs font-normal text-violet-900 bg-violet-100 px-1.5 py-0.5 rounded no-print"
+                                                title="Esperando rubrica e centro de custo">
+                                            <Tags size={11} /> classificar: {nomeUsuario.get(t.classificar_por) || 'alguém'}
                                           </span>
                                         )}
                                         {t.conciliado && t.status === 'pendente' && (
