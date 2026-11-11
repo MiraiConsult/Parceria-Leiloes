@@ -9,6 +9,7 @@ import DatePickerInput from './DatePickerInput';
 import * as XLSX from 'xlsx';
 
 interface ReconciliationProps {
+  users: User[];
   transactions: Lancamento[];
   setTransactions: React.Dispatch<React.SetStateAction<Lancamento[]>>;
   user: User;
@@ -31,6 +32,7 @@ interface ReconciliationProps {
 }
 
 const Reconciliation: React.FC<ReconciliationProps> = ({ 
+  users,
   transactions, setTransactions, user, transactionsLoading, bancos, unidades, leiloes, categories,
   selectedBankIds, setSelectedBankIds, selectedUnidades, setSelectedUnidades,
   leilaoFilter, setLeilaoFilter, rubricaFilter, setRubricaFilter,
@@ -482,6 +484,7 @@ const Reconciliation: React.FC<ReconciliationProps> = ({
         categories={categories}
         leiloes={leiloes}
         user={user}
+        users={users}
         onImported={(criados, conciliados, aprovados) => {
           const conciliadosSet = new Set(conciliados);
           const aprovadosSet = new Set(aprovados);

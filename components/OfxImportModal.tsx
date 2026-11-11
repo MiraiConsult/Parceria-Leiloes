@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   UploadCloud, X, Loader, AlertTriangle, Landmark, CheckCircle2, Link2,
   EyeOff, Sparkles, Search, ArrowLeft, CircleAlert, TriangleAlert,
@@ -23,6 +23,7 @@ interface OfxImportModalProps {
   categories: Categoria[];
   leiloes: Leilao[];
   user: User;
+  users: User[];
   onImported: (criados: Lancamento[], conciliados: string[], aprovados: string[]) => void;
 }
 
@@ -49,7 +50,7 @@ const bancoLembrado = (conta: ContaOfx): string => {
 };
 
 export const OfxImportModal: React.FC<OfxImportModalProps> = ({
-  isOpen, onClose, transactions, bancos, categories, leiloes, user, onImported,
+  isOpen, onClose, transactions, bancos, categories, leiloes, user, users, onImported,
 }) => {
   const [etapa, setEtapa] = useState<'upload' | 'revisao'>('upload');
   const [erro, setErro] = useState<string>('');
@@ -67,6 +68,18 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
   // Lançamento que a equipe registrou em outra conta: o extrato prova de qual
   // conta saiu o dinheiro, mas mover é decisão de quem revisa.
   const [corrigirConta, setCorrigirConta] = useState(true);
+  // Quem classifica as despesas que entrarem. Quem importa o extrato conhece a
+  // receita, mas é a administrativa quem sabe a que conta pertence cada
+  // pagamento — então a despesa nasce encaminhada para ela.
+  const colaboradores = useMemo(
+    () => users.filter(u => u.id !== user.id),
+    [users, user.id]);
+  const [classificarPor, setClassificarPor] = useState('');
+
+  useEffect(() => {
+    if (classificarPor || !colaboradores.length) return;
+    setClassificarPor((colaboradores.find(u => u.role !== 'admin') ?? colaboradores[0]).id);
+  }, [colaboradores, classificarPor]);
   const [salvando, setSalvando] = useState(false);
   const [progresso, setProgresso] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -344,6 +357,7 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
 
     const conta = contas[contaIdx];
     let aCriar = linhas.filter(l => l.acao === 'criar');
+    const despesasCriadas = aCriar.filter(l => l.transacao.tipo === 'debito').length;
     const aConciliar = linhas.filter(l => l.acao === 'conciliar' && alvoConciliacao(l));
 
     try {
@@ -426,6 +440,8 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
             fornecedor: l.fornecedor || l.transacao.contraparte || 'NÃO IDENTIFICADO',
             unidade_id: leilao?.unidade_id || null,
             created_by: user.id,
+            // Só despesa entra na fila: a receita quem confere é quem importou.
+            ...(classificarPor && l.transacao.tipo === 'debito' ? { classificar_por: classificarPor } : {}),
             ...(statusNovo === 'aprovado' ? { approved_by: user.id } : {}),
             ...(guardaOrigem ? { ofx_fitid: l.transacao.fitid || null, ofx_memo: l.transacao.memo } : {}),
             // Rubrica que a importação deduziu sem certeza fica marcada para
@@ -490,6 +506,9 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
         `${conciliados.length} conciliado(s) com lançamentos que já existiam` +
         (aprovados.length ? ` (${aprovados.length} aprovado(s) pelo extrato)` : '') + `\n` +
         (corrigirConta && resumo.outraConta ? `${resumo.outraConta} movido(s) para a conta deste extrato\n` : '') +
+        (classificarPor && despesasCriadas
+          ? `${despesasCriadas} despesa(s) na fila de ${colaboradores.find(u => u.id === classificarPor)?.name} para classificar\n`
+          : '') +
         `${resumo.ignorar} ignorado(s)\n\n` +
         `Extrato: ${conta.conta} — ${formatDate(conta.inicio)} a ${formatDate(conta.fim)}\n\n` +
         (statusNovo === 'pendente' && criados.length
@@ -989,6 +1008,18 @@ export const OfxImportModal: React.FC<OfxImportModalProps> = ({
                   <span className="text-xs text-slate-400">({pendentesAConciliar} pendente{pendentesAConciliar > 1 ? 's' : ''})</span>
                 )}
               </label>
+
+              {colaboradores.length > 0 && resumo.criar > 0 && (
+                <label className="flex items-center gap-2 text-sm text-slate-600"
+                       title="As despesas criadas entram na fila dessa pessoa para receber rubrica e centro de custo. As receitas não entram.">
+                  <span>Despesas a classificar com</span>
+                  <select value={classificarPor} onChange={e => setClassificarPor(e.target.value)}
+                          className="border border-slate-300 rounded-lg p-1.5 text-sm bg-white">
+                    <option value="">ninguém</option>
+                    {colaboradores.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                </label>
+              )}
 
               {resumo.outraConta > 0 && (
                 <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer"
